@@ -34,8 +34,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static java.util.Collections.emptyList;
-import static java.util.Collections.singletonList;
+import static java.util.Collections.*;
 import static org.openrewrite.Tree.randomId;
 import static org.openrewrite.cobol.tree.Space.format;
 import static org.openrewrite.internal.StringUtils.indexOfNextNonWhitespace;
@@ -5269,7 +5268,8 @@ public class CobolParserVisitor extends CobolBaseVisitor<Object> {
                 prefix(ctx),
                 Markers.EMPTY,
                 words(ctx.STOP(), ctx.RUN()),
-                visit(ctx.literal(), ctx.stopStatementGiving())
+                ctx.literal() != null ? (Cobol) visit(ctx.literal()) :
+                        ctx.stopStatementGiving() != null ? (Cobol) visit(ctx.stopStatementGiving()) : null
         );
     }
 
@@ -5536,12 +5536,37 @@ public class CobolParserVisitor extends CobolBaseVisitor<Object> {
 
     @Override
     public Cobol.CobolWord visitTerminal(TerminalNode node) {
+        Space prefix = whitespace();
+        Markers markers = continuationMarker(node.getText());
         return new Cobol.CobolWord(
                 randomId(),
-                sourceBefore(node.getText()),
-                Markers.EMPTY,
+                prefix,
+                markers,
                 node.getText()
         );
+    }
+
+    @Nullable
+    private Markers continuationMarker(String text) {
+        if (!text.isEmpty() && (text.charAt(0) == '\'' || text.charAt(0) == '"') && source.substring(cursor).length() >= 3) {
+            int index = source.substring(cursor).indexOf("\n");
+            if (index != -1) {
+                String current = source.substring(cursor);
+                String start = current.substring(0, index);
+                if (start.length() < text.length()) {
+                    String end = text.substring(start.length());
+                    String marker = current.substring(start.length(), current.indexOf(end));
+                    cursor += start.length() + marker.length() + end.length();
+                    return Markers.build(singletonList(new Continuation(randomId(),
+                            CobolContainer.build(singletonList(
+                                    CobolRightPadded.build(Integer.valueOf(start.length()))
+                                            .withAfter(Space.build(marker, emptyList()))))
+                    )));
+                }
+            }
+        }
+        cursor += text.length();
+        return Markers.EMPTY;
     }
 
     @Override

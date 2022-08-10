@@ -21,6 +21,7 @@ import org.openrewrite.cobol.tree.*;
 import org.openrewrite.internal.lang.Nullable;
 
 import java.util.List;
+import java.util.Optional;
 
 public class CobolPrinter<P> extends CobolVisitor<PrintOutputCapture<P>> {
 
@@ -391,7 +392,21 @@ public class CobolPrinter<P> extends CobolVisitor<PrintOutputCapture<P>> {
     public Cobol visitCobolWord(Cobol.CobolWord cobolWord, PrintOutputCapture<P> p) {
         visitSpace(cobolWord.getPrefix(), p);
         visitMarkers(cobolWord.getMarkers(), p);
-        p.append(cobolWord.getWord());
+        Optional<Continuation> c = cobolWord.getMarkers().findFirst(Continuation.class);
+        if (c.isPresent()) {
+            int prev = 0;
+            for (CobolRightPadded<Integer> padded : c.get().getContinuations().getPadding().getElements()) {
+                Integer index = padded.getElement();
+                p.append(cobolWord.getWord().substring(prev, index));
+                p.append(padded.getAfter().getWhitespace());
+                prev = index;
+            }
+            if (prev < cobolWord.getWord().length()) {
+                p.append(cobolWord.getWord().substring(prev));
+            }
+        } else {
+            p.append(cobolWord.getWord());
+        }
         return cobolWord;
     }
 

@@ -38,45 +38,18 @@ class CobolNistTest : RewriteTest {
         })
     }
 
-    @Disabled
+    @Disabled("Required preprocessing code.")
     @Test
-    fun continuationLine() = rewriteRun(
-        cobol(
-            """
+    fun continuationLiteral() = rewriteRun(
+        cobol("""
             IDENTIFICATION DIVISION.                                     
             PROGRAM-ID. communicationSection.                            
-            DATA DIVISION.                                               
-            WORKING-STORAGE                                              
-           -               
-           -     SECTION.                                                
-            01  CCVS-C-1.                                                
-            02 FILLER  PIC IS X(99)      
-           -               VALUE 
-           -  IS                                             
-           -   " FEATURE PASS"
-           -     .                                           
-            02 FILLER                     PIC X(20)    VALUE SPACE.      
-        """.trimIndent()
-        )
-    )
-
-    @Disabled
-    @Test
-    fun continuationStringLiteral() = rewriteRun(
-        cobol(
-            """
-             IDENTIFICATION  DIVISION.                                        
-             PROGRAM-ID. MIXEDCONTLINES.                                      
-             PROCEDURE DIVISION.                                              
-                     IF  SOME-DAT                                             
-                         DISPLAY '-------------------------------------------' 
-            -                    '-------------------------------------'       
-            -                                                 
-            -'---------------------------------------------------------'      
-            -                    '-------------------------------------'      
-                     END-IF.                                                  
-                 EXIT.                                                        
-            """.trimIndent()
-        )
+            PROCEDURE DIVISION.                                          
+                IF  SOME-DAT                                             
+                    DISPLAY '--------------------------------------------
+           -    'on another line'
+                END-IF.                                                  
+            EXIT.                                                        
+        """)
     )
 }
