@@ -86,6 +86,7 @@ public class CobolPrinter<P> extends CobolVisitor<PrintOutputCapture<P>> {
         visitSpace(accessModeClause.getPrefix(), p);
         visitMarkers(accessModeClause.getMarkers(), p);
         visit(accessModeClause.getWords(), p);
+        visit(accessModeClause.getType(), p);
         return accessModeClause;
     }
 
@@ -324,7 +325,7 @@ public class CobolPrinter<P> extends CobolVisitor<PrintOutputCapture<P>> {
         visitMarkers(classCondition.getMarkers(), p);
         visit(classCondition.getName(), p);
         visit(classCondition.getWords(), p);
-        visit(classCondition.getClassName(), p);
+        visit(classCondition.getType(), p);
         return classCondition;
     }
 

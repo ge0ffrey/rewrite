@@ -304,6 +304,7 @@ public interface Cobol extends Tree {
         Space prefix;
         Markers markers;
         CobolWord words;
+        CobolWord type;
 
         @Override
         public <P> Cobol acceptCobol(CobolVisitor<P> v, P p) {
@@ -976,6 +977,7 @@ public interface Cobol extends Tree {
         @Nullable
         BlockContainsTo blockContainsTo;
 
+        @Nullable
         CobolWord lastWords;
 
         @Override
@@ -1388,7 +1390,7 @@ public interface Cobol extends Tree {
         CobolWord words;
 
         @Nullable
-        Name className;
+        Cobol type;
 
         @Override
         public <P> Cobol acceptCobol(CobolVisitor<P> v, P p) {
@@ -2180,6 +2182,7 @@ public interface Cobol extends Tree {
         StatementPhrase notOnSizeErrorPhrase;
 
         @Getter
+        @Nullable
         @With
         CobolWord endCompute;
 
@@ -3024,10 +3027,12 @@ public interface Cobol extends Tree {
         Name name;
 
         @Getter
+        @Nullable
         @With
         DataOccursTo dataOccursTo;
 
         @Getter
+        @Nullable
         @With
         CobolWord times;
 
@@ -3472,6 +3477,7 @@ public interface Cobol extends Tree {
 
         QualifiedDataName fromName;
 
+        @Nullable
         CobolWord through;
 
         @Nullable
@@ -5745,6 +5751,7 @@ public interface Cobol extends Tree {
         Markers markers;
 
         @Getter
+        @Nullable
         @With
         CobolWord word;
 
@@ -7812,6 +7819,7 @@ public interface Cobol extends Tree {
         Name name;
 
         @Getter
+        @Nullable
         @With
         CobolWord lines;
 
@@ -8016,10 +8024,12 @@ public interface Cobol extends Tree {
         CobolWord words;
 
         @Getter
+        @Nullable
         @With
         CobolWord localData;
 
         @Getter
+        @Nullable
         @With
         Name localName;
 
@@ -11634,8 +11644,13 @@ public interface Cobol extends Tree {
 
         Space prefix;
         Markers markers;
+
+        @Nullable
         CobolWord contains;
+
         CobolWord integerLiteral;
+
+        @Nullable
         CobolWord characters;
 
         @Override
@@ -11672,9 +11687,15 @@ public interface Cobol extends Tree {
 
         Space prefix;
         Markers markers;
+
+        @Nullable
         CobolWord contains;
+
         CobolWord integerLiteral;
         RecordContainsTo recordContainsTo;
+
+
+        @Nullable
         CobolWord characters;
 
         @Override
@@ -11905,6 +11926,8 @@ public interface Cobol extends Tree {
         Markers markers;
         CobolWord release;
         QualifiedDataName recordName;
+
+        @Nullable
         CobolWord from;
 
         @Nullable
@@ -12199,6 +12222,8 @@ public interface Cobol extends Tree {
         Markers markers;
         CobolWord firstWords;
         Name integerLiteral;
+
+        @Nullable
         CobolWord secondWords;
 
         @Override
@@ -12610,7 +12635,10 @@ public interface Cobol extends Tree {
         Markers markers;
         CobolWord words;
         List<Cobol> identifiers;
+
+        @Nullable
         CobolWord upon;
+
         List<Cobol> dataNames;
 
         @Override
@@ -12923,6 +12951,8 @@ public interface Cobol extends Tree {
         Space prefix;
         Markers markers;
         CobolWord integerLiteral;
+
+        @Nullable
         CobolWord clockUnits;
 
         @Override
@@ -13012,7 +13042,10 @@ public interface Cobol extends Tree {
         Markers markers;
         CobolWord words;
         Name fileName;
+
+        @Nullable
         CobolWord record;
+
         @Nullable
         ReturnInto into;
 
@@ -13021,6 +13054,7 @@ public interface Cobol extends Tree {
         @Nullable
         StatementPhrase notAtEndPhrase;
 
+        @Nullable
         CobolWord endReturn;
 
         @Override
@@ -13599,6 +13633,8 @@ public interface Cobol extends Tree {
         Markers markers;
         CobolWord occurs;
         CobolWord integer;
+
+        @Nullable
         CobolWord times;
 
         @Override
@@ -13897,6 +13933,7 @@ public interface Cobol extends Tree {
         CobolContainer<SearchWhen> searchWhen;
 
         @Getter
+        @Nullable
         @With
         CobolWord endSearch;
 
@@ -16508,7 +16545,10 @@ public interface Cobol extends Tree {
         Space prefix;
         Markers markers;
         CobolWord systemName;
+
+        @Nullable
         CobolWord is;
+
         Name name;
 
         @Override
