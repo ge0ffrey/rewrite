@@ -32,7 +32,7 @@ import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
 /**
- * A Proto element that could have trailing space.
+ * A COBOL element that could have trailing space.
  *
  * @param <T>
  */
@@ -113,6 +113,6 @@ public class CobolRightPadded<T> {
 
     @Override
     public String toString() {
-        return "ProtoRightPadded(element=" + element.getClass().getSimpleName() + ", after=" + after + ')';
+        return "CobolRightPadded(element=" + element.getClass().getSimpleName() + ", after=" + after + ')';
     }
 }

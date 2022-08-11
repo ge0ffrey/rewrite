@@ -158,6 +158,6 @@ public class CobolContainer<T> {
 
     @Override
     public String toString() {
-        return "ProtoContainer(before=" + before + ", elementCount=" + elements.size() + ')';
+        return "CobolContainer(before=" + before + ", elementCount=" + elements.size() + ')';
     }
 }

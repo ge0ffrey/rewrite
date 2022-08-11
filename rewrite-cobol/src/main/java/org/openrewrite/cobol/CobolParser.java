@@ -23,6 +23,7 @@ import org.openrewrite.InMemoryExecutionContext;
 import org.openrewrite.Parser;
 import org.openrewrite.cobol.internal.CobolParserVisitor;
 import org.openrewrite.cobol.internal.grammar.CobolLexer;
+import org.openrewrite.cobol.proprocessor.*;
 import org.openrewrite.cobol.tree.Cobol;
 import org.openrewrite.internal.EncodingDetectingInputStream;
 import org.openrewrite.internal.MetricsHelper;
@@ -30,11 +31,13 @@ import org.openrewrite.internal.lang.Nullable;
 import org.openrewrite.tree.ParsingEventListener;
 import org.openrewrite.tree.ParsingExecutionContextView;
 
+import java.nio.charset.Charset;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
+import static java.util.Collections.emptyList;
 import static java.util.stream.Collectors.toList;
 
 public class CobolParser implements Parser<Cobol.CompilationUnit> {
@@ -52,9 +55,13 @@ public class CobolParser implements Parser<Cobol.CompilationUnit> {
                     try {
                         EncodingDetectingInputStream is = sourceFile.getSource();
                         String sourceStr = is.readFully();
-                        org.openrewrite.cobol.internal.grammar.CobolParser parser = new org.openrewrite.cobol.internal.grammar.CobolParser(new CommonTokenStream(new CobolLexer(
-                                CharStreams.fromString(sourceStr))));
-                        Cobol.CompilationUnit compilationUnit = (Cobol.CompilationUnit) new CobolParserVisitor(
+
+                        String processedCobol = preprocessCobol(sourceStr, is.getCharset());
+                        org.openrewrite.cobol.internal.grammar.CobolParser parser =
+                                new org.openrewrite.cobol.internal.grammar.CobolParser(
+                                        new CommonTokenStream(new CobolLexer(CharStreams.fromString(processedCobol))));
+
+                        Cobol.CompilationUnit compilationUnit = new CobolParserVisitor(
                                 sourceFile.getRelativePath(relativeTo),
                                 sourceFile.getFileAttributes(),
                                 sourceStr,
@@ -73,6 +80,28 @@ public class CobolParser implements Parser<Cobol.CompilationUnit> {
                 })
                 .filter(Objects::nonNull)
                 .collect(toList());
+    }
+
+    private String preprocessCobol(String source, Charset encoding) {
+        CobolPreprocessor cobolPreprocessor = new CobolPreprocessor(
+                new CobolCommentEntriesMarker(),
+                new CobolDocumentParser(),
+                new CobolInlineCommentEntriesNormalizer(),
+                new CobolLineIndicatorProcessor(),
+                new CobolLineReader()
+        );
+
+        CobolParserParams params = new CobolParserParams(
+                encoding,
+                emptyList(),
+                emptyList(),
+                emptyList(),
+                CobolDialect.ANSI85,
+                CobolPreprocessor.CobolSourceFormatEnum.TANDEM,
+                true
+        );
+
+        return cobolPreprocessor.process(source, params);
     }
 
     @Override

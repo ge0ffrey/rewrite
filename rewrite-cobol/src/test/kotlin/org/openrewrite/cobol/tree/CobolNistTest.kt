@@ -38,7 +38,24 @@ class CobolNistTest : RewriteTest {
         })
     }
 
-    @Disabled("Required preprocessing code.")
+    @Disabled
+    @Test
+    fun lineNumbersWithCommentArea() = rewriteRun(
+        cobol("""
+            000000 IDENTIFICATION DIVISION.                                         CM1014.2
+            000000 PROGRAM-ID. communicationSection.                                CM1014.2
+        """)
+    )
+
+    @Disabled
+    @Test
+    fun lineNumbers() = rewriteRun(
+        cobol("""
+            000000 IDENTIFICATION DIVISION.                                         CM1014.2
+            000000 PROGRAM-ID. communicationSection.                                CM1014.2
+        """)
+    )
+
     @Test
     fun continuationLiteral() = rewriteRun(
         cobol("""
@@ -48,6 +65,21 @@ class CobolNistTest : RewriteTest {
                 IF  SOME-DAT                                             
                     DISPLAY '--------------------------------------------
            -    'on another line'
+                END-IF.                                                  
+            EXIT.                                                        
+        """)
+    )
+
+    @Test
+    fun multipleContinuationLiteral() = rewriteRun(
+        cobol("""
+            IDENTIFICATION DIVISION.                                     
+            PROGRAM-ID. communicationSection.                            
+            PROCEDURE DIVISION.                                          
+                IF  SOME-DAT                                             
+                    DISPLAY 'first line                                  
+           -    ' second line
+           -    ' third line'
                 END-IF.                                                  
             EXIT.                                                        
         """)

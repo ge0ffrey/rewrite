@@ -5548,21 +5548,37 @@ public class CobolParserVisitor extends CobolBaseVisitor<Object> {
 
     @Nullable
     private Markers continuationMarker(String text) {
-        if (!text.isEmpty() && (text.charAt(0) == '\'' || text.charAt(0) == '"') && source.substring(cursor).length() >= 3) {
-            int index = source.substring(cursor).indexOf("\n");
-            if (index != -1) {
-                String current = source.substring(cursor);
-                String start = current.substring(0, index);
-                if (start.length() < text.length()) {
-                    String end = text.substring(start.length());
-                    String marker = current.substring(start.length(), current.indexOf(end));
-                    cursor += start.length() + marker.length() + end.length();
-                    return Markers.build(singletonList(new Continuation(randomId(),
-                            CobolContainer.build(singletonList(
-                                    CobolRightPadded.build(Integer.valueOf(start.length()))
-                                            .withAfter(Space.build(marker, emptyList()))))
-                    )));
+        // Check if a NONNUMERIC token is continued on the next line.
+        if (!text.isEmpty() && (text.charAt(0) == '\'' || text.charAt(0) == '"')) {
+            List<CobolRightPadded<Integer>> continuations = null;
+            char delimiter = text.charAt(0);
+            int continuationPos = 0;
+            int matchedText = 0;
+            while (matchedText < text.length()) {
+                int endLinePos = source.substring(cursor).indexOf("\n");
+                if (endLinePos == -1) {
+                    break;
                 }
+
+                String current = source.substring(cursor);
+                String start = current.substring(0, endLinePos);
+                continuationPos += endLinePos;
+
+                // Increment past the starting delimiter to find the closing delimiter.
+                int endPos = current.substring(1).indexOf(delimiter) + 2;
+                if (start.length() > endPos) {
+                    break;
+                }
+                String marker = current.substring(start.length(), endPos);
+                cursor += start.length() + marker.length();
+                matchedText += start.length();
+                if (continuations == null) {
+                    continuations = new ArrayList<>();
+                }
+                continuations.add(CobolRightPadded.build(Integer.valueOf(continuationPos)).withAfter(Space.build(marker, emptyList())));
+            }
+            if (continuations != null && !continuations.isEmpty()) {
+                return Markers.build(singletonList(new Continuation(randomId(), CobolContainer.build(continuations))));
             }
         }
         cursor += text.length();
