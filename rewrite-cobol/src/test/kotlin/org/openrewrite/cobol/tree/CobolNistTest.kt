@@ -51,8 +51,8 @@ class CobolNistTest : RewriteTest {
     @Test
     fun lineNumbers() = rewriteRun(
         cobol("""
-            000000 IDENTIFICATION DIVISION.                                         CM1014.2
-            000000 PROGRAM-ID. communicationSection.                                CM1014.2
+            000000 IDENTIFICATION DIVISION.                                         
+            000000 PROGRAM-ID. communicationSection.                                
         """)
     )
 
