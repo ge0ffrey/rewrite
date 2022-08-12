@@ -3199,7 +3199,7 @@ COMMENTTAG : '*>';
 DOLLARCHAR : '$';
 DOUBLEQUOTE : '"';
 // period full stop
-DOT_FS : '.' ('\r' | '\n' | '\f' | '\t' | ' ')+ | '.' EOF;
+DOT_FS : '.' ('\t' | ' ')+ | '.' EOF;
 DOT : '.';
 EQUALCHAR : '=';
 EXECCICSTAG : '*>EXECCICS';
