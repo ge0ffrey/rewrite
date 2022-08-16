@@ -52,12 +52,12 @@ public interface J extends Tree {
     @SuppressWarnings("unchecked")
     @Override
     default <R extends Tree, P> R accept(TreeVisitor<R, P> v, P p) {
-        return (R) acceptJava((JavaVisitor<P>) v, p);
+        return (R) acceptJava(v.adapt(JavaVisitor.class), p);
     }
 
     @Override
     default <P> boolean isAcceptable(TreeVisitor<?, P> v, P p) {
-        return v instanceof JavaVisitor;
+        return v.isAdaptableTo(JavaVisitor.class);
     }
 
     @Nullable
@@ -2837,6 +2837,22 @@ public interface J extends Tree {
 
             @With
             String codePoint;
+        }
+
+        /**
+         * Checks if the given {@link Expression} is a {@link Literal} with the given value.
+         *
+         * @param maybeLiteral An expresssion that may be an {@link Literal}.
+         * @param value The value to compare against.
+         * @return {@code true} if the given {@link Expression} is a {@link Literal} with the given value.
+         */
+        @Incubating(since = "7.25.0")
+        public static boolean isLiteralValue(@Nullable Expression maybeLiteral, Object value) {
+            if (maybeLiteral instanceof Literal) {
+                Literal literal = (Literal) maybeLiteral;
+                return literal.getValue() != null && literal.getValue().equals(value);
+            }
+            return false;
         }
     }
 

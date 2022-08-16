@@ -16,14 +16,18 @@
 package org.openrewrite.hcl.tree
 
 import org.junit.jupiter.api.Test
+import org.openrewrite.hcl.Assertions.hcl
+import org.openrewrite.test.RewriteTest
 
-class HclVariableExpressionTest : HclTreeTest {
+class HclVariableExpressionTest : RewriteTest {
 
     @Test
-    fun variableExpression() = assertParsePrintAndProcess(
-        """
-            a = true
-            b = a
-        """.trimIndent()
+    fun variableExpression() = rewriteRun(
+        hcl(
+            """
+                a = true
+                b = a
+            """
+        )
     )
 }

@@ -19,13 +19,16 @@ tasks.register<JavaExec>("generateAntlrSources") {
 dependencies {
     api(project(":rewrite-core"))
 
-    api("io.micrometer:micrometer-core:1.+")
+    api("io.micrometer:micrometer-core:1.9.+")
     api("org.jetbrains:annotations:latest.release")
 
     implementation("org.antlr:antlr4:4.9.+")
     compileOnly("com.puppycrawl.tools:checkstyle:9.+") { // Pinned to 9.+ because 10.x does not support Java 8: https://checkstyle.sourceforge.io/#JRE_and_JDK
         isTransitive = false
     }
+    compileOnly(project(":rewrite-test"))
+    compileOnly("org.junit.jupiter:junit-jupiter-api:latest.release")
+    compileOnly("org.assertj:assertj-core:latest.release")
     implementation("commons-lang:commons-lang:latest.release")
     implementation("io.github.classgraph:classgraph:latest.release")
 

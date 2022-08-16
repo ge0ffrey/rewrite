@@ -16,15 +16,19 @@
 package org.openrewrite.groovy.tree
 
 import org.junit.jupiter.api.Test
+import org.openrewrite.groovy.Assertions.groovy
+import org.openrewrite.test.RewriteTest
 
-class BlockTest: GroovyTreeTest {
+class BlockTest : RewriteTest {
 
     @Test
-    fun block() = assertParsePrintAndProcess(
-        """
-            implementation ('org.thymeleaf:thymeleaf-spring4:3.0.6.RELEASE') {
-                force = true;
-            }
-        """.trimIndent()
+    fun block() = rewriteRun(
+        groovy(
+            """
+                implementation ('org.thymeleaf:thymeleaf-spring4:3.0.6.RELEASE') {
+                    force = true;
+                }
+            """
+        )
     )
 }

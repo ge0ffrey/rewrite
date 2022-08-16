@@ -18,7 +18,6 @@ package org.openrewrite.java;
 import org.openrewrite.*;
 import org.openrewrite.internal.ListUtils;
 import org.openrewrite.internal.lang.Nullable;
-import org.openrewrite.java.dataflow.Dataflow;
 import org.openrewrite.java.format.AutoFormatVisitor;
 import org.openrewrite.java.tree.*;
 import org.openrewrite.marker.Markers;
@@ -49,15 +48,6 @@ public class JavaVisitor<P> extends TreeVisitor<J, P> {
      */
     protected JavadocVisitor<P> getJavadocVisitor() {
         return new JavadocVisitor<>(this);
-    }
-    @Incubating(since = "7.24.0")
-    public Dataflow dataflow() {
-        return Dataflow.startingAt(getCursor());
-    }
-
-    @Incubating(since = "7.24.0")
-    public Dataflow dataflow(Cursor cursor) {
-        return Dataflow.startingAt(cursor);
     }
 
     /**
@@ -156,7 +146,7 @@ public class JavaVisitor<P> extends TreeVisitor<J, P> {
     public Space visitSpace(Space space, Space.Location loc, P p) {
         Space s = space;
         s = s.withComments(ListUtils.map(s.getComments(), comment -> {
-            if(comment instanceof Javadoc) {
+            if (comment instanceof Javadoc) {
                 if (javadocVisitor == null) {
                     javadocVisitor = getJavadocVisitor();
                 }
@@ -289,7 +279,7 @@ public class JavaVisitor<P> extends TreeVisitor<J, P> {
             a = (J.Assert) temp;
         }
         a = a.withCondition(visitAndCast(a.getCondition(), p));
-        if(a.getDetail() != null) {
+        if (a.getDetail() != null) {
             a = a.withDetail(visitLeftPadded(a.getDetail(), JLeftPadded.Location.ASSERT_DETAIL, p));
         }
         return a;
@@ -654,6 +644,7 @@ public class JavaVisitor<P> extends TreeVisitor<J, P> {
         e = e.getPadding().withBody(visitRightPadded(e.getPadding().getBody(), JRightPadded.Location.IF_ELSE, p));
         return e;
     }
+
     public J visitIf(J.If iff, P p) {
         J.If i = iff;
         i = i.withPrefix(visitSpace(i.getPrefix(), Space.Location.IF_PREFIX, p));

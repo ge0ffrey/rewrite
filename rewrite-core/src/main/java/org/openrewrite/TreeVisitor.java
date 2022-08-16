@@ -16,26 +16,23 @@
 package org.openrewrite;
 
 import de.danielbechler.diff.ObjectDifferBuilder;
-import de.danielbechler.diff.differ.DifferDispatcher;
 import de.danielbechler.diff.node.DiffNode;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Timer;
 import org.openrewrite.internal.ListUtils;
+import org.openrewrite.internal.TreeVisitorAdapter;
 import org.openrewrite.internal.lang.Nullable;
 import org.openrewrite.marker.Marker;
 import org.openrewrite.marker.Markers;
-import org.slf4j.LoggerFactory;
-import org.slf4j.event.Level;
 
-import java.lang.management.ManagementFactory;
-import java.util.ArrayList;
-import java.util.Collection;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.lang.reflect.TypeVariable;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
-import java.util.logging.Logger;
 
 /**
  * Abstract {@link TreeVisitor} for processing {@link Tree elements}
@@ -50,9 +47,6 @@ import java.util.logging.Logger;
  * @param <P> An input object that is passed to every visit method.
  */
 public abstract class TreeVisitor<T extends Tree, P> {
-    private static final boolean IS_DEBUGGING = System.getProperty("org.openrewrite.debug") != null ||
-            ManagementFactory.getRuntimeMXBean().getInputArguments().toString().contains("-agentlib:jdwp");
-
     private static final Cursor ROOT = new Cursor(null, "root");
 
     private Cursor cursor = ROOT;
@@ -76,16 +70,13 @@ public abstract class TreeVisitor<T extends Tree, P> {
     private List<TreeVisitor<T, P>> afterVisit;
 
     private int visitCount;
-    private final DistributionSummary visitCountSummary = DistributionSummary.builder("rewrite.visitor.visit.method.count")
-            .description("Visit methods called per source file visited.")
-            .tag("visitor.class", getClass().getName())
-            .register(Metrics.globalRegistry);
+    private final DistributionSummary visitCountSummary = DistributionSummary.builder("rewrite.visitor.visit.method.count").description("Visit methods called per source file visited.").tag("visitor.class", getClass().getName()).register(Metrics.globalRegistry);
 
     public boolean isAcceptable(SourceFile sourceFile, P p) {
         return true;
     }
 
-    protected void setCursor(@Nullable Cursor cursor) {
+    public void setCursor(@Nullable Cursor cursor) {
         this.cursor = cursor;
     }
 
@@ -133,8 +124,7 @@ public abstract class TreeVisitor<T extends Tree, P> {
 
     public final Cursor getCursor() {
         if (cursor == null) {
-            throw new IllegalStateException("Cursoring is not enabled for this visitor. " +
-                    "Call setCursoringOn() in the visitor's constructor to enable.");
+            throw new IllegalStateException("Cursoring is not enabled for this visitor. " + "Call setCursoringOn() in the visitor's constructor to enable.");
         }
         return cursor;
     }
@@ -207,56 +197,60 @@ public abstract class TreeVisitor<T extends Tree, P> {
         T t = null;
         // Do you visitor take tree and do you tree take visitor?
         boolean isAcceptable = tree.isAcceptable(this, p) && (!(tree instanceof SourceFile) || isAcceptable((SourceFile) tree, p));
-        if (isAcceptable) {
-            //noinspection unchecked
-            t = preVisit((T) tree, p);
-            if (t != null) {
-                t = t.accept(this, p);
-            }
-            if (t != null) {
-                t = postVisit(t, p);
-            }
-            if (t != tree && t != null && p instanceof ExecutionContext) {
-                ExecutionContext ctx = (ExecutionContext) p;
-                for (TreeObserver.Subscription observer : ctx.getObservers()) {
-                    if (observer.isSubscribed(tree)) {
-                        observer.getObserver().treeChanged(getCursor(), t);
-                        AtomicReference<T> t2 = new AtomicReference<>(t);
-                        DiffNode diff = ObjectDifferBuilder.buildDefault().compare(t, tree);
-                        diff.visit((node, visit) -> {
-                            if (!node.hasChildren() && node.getPropertyName() != null) {
-                                //noinspection unchecked
-                                t2.set((T) observer.getObserver().propertyChanged(node.getPropertyName(),
-                                        getCursor(), t2.get(), node.canonicalGet(tree), node.canonicalGet(t2.get())));
-                            }
-                        });
-                        t = t2.get();
-                    }
+
+        try {
+            if (isAcceptable) {
+                //noinspection unchecked
+                t = preVisit((T) tree, p);
+                if (t != null) {
+                    t = t.accept(this, p);
                 }
-            }
-        }
-
-        setCursor(cursor.getParent());
-
-        if (topLevel) {
-            sample.stop(Timer.builder("rewrite.visitor.visit")
-                    .tag("visitor.class", getClass().getName())
-                    .register(Metrics.globalRegistry));
-            visitCountSummary.record(visitCount);
-
-            if (t != null) {
-                for (TreeVisitor<T, P> v : afterVisit) {
-                    if (v != null) {
-                        v.setCursor(getCursor());
-                        t = v.visit(t, p);
+                if (t != null) {
+                    t = postVisit(t, p);
+                }
+                if (t != tree && t != null && p instanceof ExecutionContext) {
+                    ExecutionContext ctx = (ExecutionContext) p;
+                    for (TreeObserver.Subscription observer : ctx.getObservers()) {
+                        if (observer.isSubscribed(tree)) {
+                            observer.getObserver().treeChanged(getCursor(), t);
+                            AtomicReference<T> t2 = new AtomicReference<>(t);
+                            DiffNode diff = ObjectDifferBuilder.buildDefault().compare(t, tree);
+                            diff.visit((node, visit) -> {
+                                if (!node.hasChildren() && node.getPropertyName() != null) {
+                                    //noinspection unchecked
+                                    t2.set((T) observer.getObserver().propertyChanged(node.getPropertyName(), getCursor(), t2.get(), node.canonicalGet(tree), node.canonicalGet(t2.get())));
+                                }
+                            });
+                            t = t2.get();
+                        }
                     }
                 }
             }
 
-            sample.stop(Timer.builder("rewrite.visitor.visit.cumulative")
-                    .tag("visitor.class", getClass().getName())
-                    .register(Metrics.globalRegistry));
-            afterVisit = null;
+            setCursor(cursor.getParent());
+
+            if (topLevel) {
+                sample.stop(Timer.builder("rewrite.visitor.visit").tag("visitor.class", getClass().getName()).register(Metrics.globalRegistry));
+                visitCountSummary.record(visitCount);
+
+                if (t != null) {
+                    for (TreeVisitor<T, P> v : afterVisit) {
+                        if (v != null) {
+                            v.setCursor(getCursor());
+                            t = v.visit(t, p);
+                        }
+                    }
+                }
+
+                sample.stop(Timer.builder("rewrite.visitor.visit.cumulative").tag("visitor.class", getClass().getName()).register(Metrics.globalRegistry));
+                afterVisit = null;
+            }
+        } catch (Throwable e) {
+            if (e instanceof UncaughtVisitorException) {
+                // bubbling up from lower in the tree
+                throw e;
+            }
+            throw new UncaughtVisitorException(e, getCursor());
         }
 
         //noinspection unchecked
@@ -300,5 +294,50 @@ public abstract class TreeVisitor<T extends Tree, P> {
     public <M extends Marker> M visitMarker(Marker marker, P p) {
         //noinspection unchecked
         return (M) marker;
+    }
+
+    public boolean isAdaptableTo(@SuppressWarnings("rawtypes") Class<? extends TreeVisitor> adaptTo) {
+        Class<? extends Tree> mine = visitorTreeType(getClass());
+        Class<? extends Tree> theirs = visitorTreeType(adaptTo);
+        return mine.isAssignableFrom(theirs);
+    }
+
+    @SuppressWarnings("rawtypes")
+    private Class<? extends Tree> visitorTreeType(Class<? extends TreeVisitor> v) {
+        for (TypeVariable<? extends Class<? extends TreeVisitor>> tp : v.getTypeParameters()) {
+            for (Type bound : tp.getBounds()) {
+                if (bound instanceof Class && Tree.class.isAssignableFrom((Class<?>) bound)) {
+                    //noinspection unchecked
+                    return (Class<? extends Tree>) bound;
+                }
+            }
+        }
+
+        Type sup = v.getGenericSuperclass();
+        for (int i = 0; i < 20; i++) {
+            if (sup instanceof ParameterizedType) {
+                for (Type bound : ((ParameterizedType) sup).getActualTypeArguments()) {
+                    if (bound instanceof Class && Tree.class.isAssignableFrom((Class<?>) bound)) {
+                        //noinspection unchecked
+                        return (Class<? extends Tree>) bound;
+                    }
+                }
+                sup = ((ParameterizedType) sup).getRawType();
+            } else if (sup instanceof Class) {
+                sup = ((Class<?>) sup).getGenericSuperclass();
+            }
+        }
+        throw new IllegalArgumentException("Expected to find a tree type somewhere in the type parameters of the " +
+                "type hierarhcy of visitor " + getClass().getName());
+    }
+
+    public <R extends Tree, V extends TreeVisitor<R, P>> V adapt(Class<? extends V> adaptTo) {
+        if (adaptTo.isAssignableFrom(getClass())) {
+            //noinspection unchecked
+            return (V) this;
+        } else if (!isAdaptableTo(adaptTo)) {
+            throw new IllegalArgumentException(getClass().getSimpleName() + " must be adaptable to " + adaptTo.getName() + ".");
+        }
+        return TreeVisitorAdapter.adapt(this, adaptTo);
     }
 }

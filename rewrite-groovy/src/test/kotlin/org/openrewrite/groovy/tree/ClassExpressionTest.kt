@@ -16,15 +16,19 @@
 package org.openrewrite.groovy.tree
 
 import org.junit.jupiter.api.Test
+import org.openrewrite.groovy.Assertions.groovy
+import org.openrewrite.test.RewriteTest
 
-class ClassExpressionTest : GroovyTreeTest {
+class ClassExpressionTest : RewriteTest {
 
     @Test
-    fun classExpressions() = assertParsePrintAndProcess(
-        """
-            maven( List , List ) {
-                from(components.java)
-            }
-        """
+    fun classExpressions() = rewriteRun(
+        groovy(
+            """
+                maven( List , List ) {
+                    from(components.java)
+                }
+            """
+        )
     )
 }

@@ -18,11 +18,11 @@ package org.openrewrite;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Timer;
+import org.openrewrite.internal.FindUncaughtVisitorException;
 import org.openrewrite.internal.ListUtils;
+import org.openrewrite.internal.MarkerIdPrinter;
 import org.openrewrite.internal.MetricsHelper;
-import org.openrewrite.internal.lang.Nullable;
 import org.openrewrite.marker.Generated;
-import org.openrewrite.marker.Markers;
 import org.openrewrite.marker.RecipesThatMadeChanges;
 import org.openrewrite.scheduling.WatchableExecutionContext;
 
@@ -35,7 +35,7 @@ import java.util.function.UnaryOperator;
 
 import static java.util.Collections.emptyList;
 import static java.util.Collections.singleton;
-import static java.util.stream.Collectors.joining;
+import static java.util.Objects.requireNonNull;
 import static org.openrewrite.Recipe.PANIC;
 import static org.openrewrite.Tree.randomId;
 
@@ -115,25 +115,7 @@ public interface RecipeScheduler {
 
                     boolean isChanged = !original.getSourcePath().equals(s.getSourcePath());
                     if (!isChanged) {
-                        TreeVisitor<Tree, PrintOutputCapture<ExecutionContext>> markerIdPrinter = new TreeVisitor<Tree, PrintOutputCapture<ExecutionContext>>() {
-                            @Override
-                            public Tree visit(@Nullable Tree tree, PrintOutputCapture<ExecutionContext> p) {
-                                if (tree instanceof Markers) {
-                                    String markerIds = ((Markers) tree).entries().stream()
-                                            .filter(marker -> !(marker instanceof RecipesThatMadeChanges))
-                                            .map(marker -> String.valueOf(marker.hashCode()))
-                                            .collect(joining(","));
-                                    if (!markerIds.isEmpty()) {
-                                        p.out
-                                                .append("markers[")
-                                                .append(markerIds)
-                                                .append("]->");
-                                    }
-                                }
-                                return super.visit(tree, p);
-                            }
-                        };
-
+                        MarkerIdPrinter markerIdPrinter = new MarkerIdPrinter();
                         PrintOutputCapture<ExecutionContext> originalOutput = new PrintOutputCapture<>(ctx);
                         PrintOutputCapture<ExecutionContext> sOutput = new PrintOutputCapture<>(ctx);
                         markerIdPrinter.visit(original, originalOutput);
@@ -144,7 +126,7 @@ public interface RecipeScheduler {
                     if (isChanged) {
                         results.add(new Result(original, s, s.getMarkers()
                                 .findFirst(RecipesThatMadeChanges.class)
-                                .orElseThrow(() -> new IllegalStateException("SourceFile changed but no recipe reported making a change?"))
+                                .orElseThrow(() -> new IllegalStateException("SourceFile changed but no recipe reported making a change. Did a recipe apply a marker?"))
                                 .getRecipes()));
                     }
                 }
@@ -209,6 +191,8 @@ public interface RecipeScheduler {
                     Timer.Builder timer = Timer.builder("rewrite.recipe.visit").tag("recipe", recipe.getDisplayName());
                     Timer.Sample sample = Timer.start();
 
+                    S afterFile = s;
+
                     try {
                         if (recipe.getSingleSourceApplicableTest() != null) {
                             if (recipe.getSingleSourceApplicableTest().visit(s, ctx) == s) {
@@ -243,34 +227,40 @@ public interface RecipeScheduler {
                         TreeVisitor<?, ExecutionContext> visitor = recipe.getVisitor();
 
                         //noinspection unchecked
-                        S afterFile = (S) visitor.visitSourceFile(s, ctx);
+                        afterFile = (S) visitor.visitSourceFile(s, ctx);
 
                         if (visitor.isAcceptable(s, ctx)) {
                             //noinspection unchecked
                             afterFile = (S) visitor.visit(afterFile, ctx);
                         }
-                        if (afterFile != null && afterFile != s) {
-                            List<Stack<Recipe>> recipeStackList = new ArrayList<>(1);
-                            recipeStackList.add(recipeStack);
-                            afterFile = afterFile.withMarkers(afterFile.getMarkers().computeByType(
-                                    new RecipesThatMadeChanges(randomId(), recipeStackList),
-                                    (r1, r2) -> {
-                                        r1.getRecipes().addAll(r2.getRecipes());
-                                        return r1;
-                                    }));
-                            sample.stop(MetricsHelper.successTags(timer, "changed").register(Metrics.globalRegistry));
-                        } else if (afterFile == null) {
-                            recipeThatDeletedSourceFile.put(s.getId(), recipeStack);
-                            sample.stop(MetricsHelper.successTags(timer, "deleted").register(Metrics.globalRegistry));
-                        } else {
-                            sample.stop(MetricsHelper.successTags(timer, "unchanged").register(Metrics.globalRegistry));
-                        }
-                        return afterFile;
                     } catch (Throwable t) {
+                        if (t instanceof UncaughtVisitorException) {
+                            UncaughtVisitorException vt = (UncaughtVisitorException) t;
+
+                            //noinspection unchecked
+                            afterFile = (S) new FindUncaughtVisitorException(vt).visitNonNull(requireNonNull(afterFile), 0);
+                        }
                         sample.stop(MetricsHelper.errorTags(timer, t).register(Metrics.globalRegistry));
                         ctx.getOnError().accept(t);
-                        return s;
                     }
+
+                    if (afterFile != null && afterFile != s) {
+                        List<Stack<Recipe>> recipeStackList = new ArrayList<>(1);
+                        recipeStackList.add(recipeStack);
+                        afterFile = afterFile.withMarkers(afterFile.getMarkers().computeByType(
+                                new RecipesThatMadeChanges(randomId(), recipeStackList),
+                                (r1, r2) -> {
+                                    r1.getRecipes().addAll(r2.getRecipes());
+                                    return r1;
+                                }));
+                        sample.stop(MetricsHelper.successTags(timer, "changed").register(Metrics.globalRegistry));
+                    } else if (afterFile == null) {
+                        recipeThatDeletedSourceFile.put(requireNonNull(s).getId(), recipeStack);
+                        sample.stop(MetricsHelper.successTags(timer, "deleted").register(Metrics.globalRegistry));
+                    } else {
+                        sample.stop(MetricsHelper.successTags(timer, "unchanged").register(Metrics.globalRegistry));
+                    }
+                    return afterFile;
                 });
 
         // The type of the list is widened at this point, since a source file type may be generated that isn't

@@ -18,15 +18,16 @@ package org.openrewrite.hcl.tree
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.openrewrite.ExecutionContext
+import org.openrewrite.hcl.Assertions.hcl
 import org.openrewrite.hcl.HclVisitor
 import org.openrewrite.test.RewriteTest
 import org.openrewrite.test.RewriteTest.toRecipe
 
-class HclAttributeTest : HclTreeTest, RewriteTest {
+class HclAttributeTest : RewriteTest {
 
     @Test
-    fun attribute() = assertParsePrintAndProcess(
-        "a = true"
+    fun attribute() = rewriteRun(
+        hcl("a = true")
     )
 
     @Test

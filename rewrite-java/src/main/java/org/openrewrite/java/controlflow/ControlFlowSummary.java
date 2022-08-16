@@ -22,10 +22,8 @@ import org.openrewrite.Cursor;
 import org.openrewrite.Incubating;
 import org.openrewrite.java.tree.Expression;
 
-import java.util.HashSet;
-import java.util.LinkedList;
-import java.util.Queue;
-import java.util.Set;
+import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -38,18 +36,24 @@ public final class ControlFlowSummary {
     private final ControlFlowNode.End end;
 
     @Getter(lazy = true)
-    private final Set<ControlFlowNode> allNodes = getAllControlFlowNodes(start);
+    private final Set<ControlFlowNode> allNodes = getAllControlFlowNodes(start, end);
 
-    private static Set<ControlFlowNode> getAllControlFlowNodes(ControlFlowNode.Start start) {
-        Set<ControlFlowNode> all = new HashSet<>();
-        recurseGetAllControlFlowNodes(start, all);
+    private static Set<ControlFlowNode> getAllControlFlowNodes(ControlFlowNode.Start start, ControlFlowNode.End end) {
+        // LinkedHashSet to preserve insertion order of nodes
+        LinkedHashSet<ControlFlowNode> all = new LinkedHashSet<>();
+        recurseGetAllControlFlowNodes(start, all, ControlFlowNode::getSuccessors);
+        // Sometimes the end may not be reachable because of an infinite loop.
+        // In this case, we need to add the end node and look backwards as well to capture 'all' nodes.
+        recurseGetAllControlFlowNodes(end, all, ControlFlowNode::getPredecessors);
         return all;
     }
-    private static void recurseGetAllControlFlowNodes(ControlFlowNode current, Set<ControlFlowNode> visited) {
+
+
+    private static void recurseGetAllControlFlowNodes(ControlFlowNode current, Set<ControlFlowNode> visited, Function<ControlFlowNode, Set<ControlFlowNode>> getNext) {
         visited.add(current);
-        Queue<ControlFlowNode> toVisit = new LinkedList<>(current.getSuccessors());
+        Queue<ControlFlowNode> toVisit = new LinkedList<>(getNext.apply(current));
         toVisit.removeAll(visited);
-        toVisit.forEach(node -> recurseGetAllControlFlowNodes(node, visited));
+        toVisit.forEach(node -> recurseGetAllControlFlowNodes(node, visited, getNext));
     }
 
     public Set<ControlFlowNode.BasicBlock> getBasicBlocks() {
@@ -84,7 +88,7 @@ public final class ControlFlowSummary {
     }
 
     public Set<ControlFlowNode.BasicBlock> computeReachableBasicBlock(BarrierGuardPredicate predicate) {
-        Set<ControlFlowNode> reachable = new HashSet<>();
+        Set<ControlFlowNode> reachable = new LinkedHashSet<>();
         recurseComputeReachableBasicBlock(start, predicate, reachable);
         return reachable
                 .stream()

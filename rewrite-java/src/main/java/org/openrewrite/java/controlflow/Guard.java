@@ -26,7 +26,7 @@ import java.util.Optional;
 
 @Incubating(since = "7.25.0")
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
-public class Guard {
+public final class Guard {
     private final Cursor cursor;
 
     @Getter
@@ -34,7 +34,7 @@ public class Guard {
 
     public static Optional<Guard> from(Cursor cursor) {
         if (!(cursor.getValue() instanceof Expression)) {
-            throw new IllegalArgumentException("Cursor must be on an expression");
+            throw new IllegalArgumentException("Cursor must be on an expression, but was on " + cursor.getValue());
         }
         Expression e = cursor.getValue();
         if (e instanceof J.ControlParentheses) {
@@ -42,7 +42,7 @@ public class Guard {
                 return Optional.empty();
             }
         }
-        return getTypeSafe(e)
+        return getTypeSafe(cursor, e)
                 .map(type -> {
                     if (TypeUtils.isAssignableTo(JavaType.Primitive.Boolean, type)) {
                         return new Guard(cursor, e);
@@ -104,7 +104,7 @@ public class Guard {
                 (e instanceof J.Unary && ((J.Unary) e).getOperator() == J.Unary.Type.Not);
     }
 
-    private static Optional<JavaType> getTypeSafe(Expression e) {
+    private static Optional<JavaType> getTypeSafe(Cursor c, Expression e) {
         JavaType type = e.getType();
         if (type != null && !JavaType.Unknown.getInstance().equals(type)) {
             return Optional.of(type);
@@ -116,12 +116,82 @@ public class Guard {
                 case Or:
                 case Equal:
                 case NotEqual:
+                case LessThan:
+                case LessThanOrEqual:
+                case GreaterThan:
+                case GreaterThanOrEqual:
                     return Optional.of(JavaType.Primitive.Boolean);
                 default:
-                    return Optional.empty();
+                    break;
             }
         } else if (e instanceof J.InstanceOf) {
             return Optional.of(JavaType.Primitive.Boolean);
+        } else if (e instanceof J.Unary) {
+            J.Unary unary = (J.Unary) e;
+            if (unary.getOperator() == J.Unary.Type.Not) {
+                return Optional.of(JavaType.Primitive.Boolean);
+            }
+        } else if (e instanceof J.MethodInvocation) {
+            J.MethodInvocation methodInvocation = (J.MethodInvocation) e;
+            if (methodInvocation.getSimpleName().equals("equals")) {
+                return Optional.of(JavaType.Primitive.Boolean);
+            }
+        }
+        J firstEnclosing = c.getParentOrThrow().firstEnclosing(J.class);
+        if (firstEnclosing instanceof J.Binary) {
+            J.Binary binary = (J.Binary) firstEnclosing;
+            if (binary.getLeft() == e || binary.getRight() == e) {
+                switch (binary.getOperator()) {
+                    case And:
+                    case Or:
+                        return Optional.of(JavaType.Primitive.Boolean);
+                    default:
+                        break;
+                }
+            }
+        } else if (firstEnclosing instanceof J.Unary) {
+            J.Unary unary = (J.Unary) firstEnclosing;
+            if (unary.getExpression() == e && unary.getOperator() == J.Unary.Type.Not) {
+                return Optional.of(JavaType.Primitive.Boolean);
+            }
+        } else if (firstEnclosing instanceof J.Ternary) {
+            J.Ternary ternary = (J.Ternary) firstEnclosing;
+            if (ternary.getCondition() == e) {
+                return Optional.of(JavaType.Primitive.Boolean);
+            }
+        } else if (firstEnclosing instanceof J.ControlParentheses) {
+            J.ControlParentheses<?> controlParentheses = (J.ControlParentheses<?>) firstEnclosing;
+            if (controlParentheses.getTree() == e) {
+                if (Optional.ofNullable(c.getParentOrThrow().firstEnclosing(J.If.class)).map(J.If::getIfCondition).map(condition -> condition == controlParentheses).orElse(false) ||
+                        Optional.ofNullable(c.getParentOrThrow().firstEnclosing(J.WhileLoop.class)).map(J.WhileLoop::getCondition).map(condition -> condition == controlParentheses).orElse(false) ||
+                        Optional.ofNullable(c.getParentOrThrow().firstEnclosing(J.DoWhileLoop.class)).map(J.DoWhileLoop::getWhileCondition).map(condition -> condition == controlParentheses).orElse(false)) {
+                    return Optional.of(JavaType.Primitive.Boolean);
+                } else {
+                    Cursor parent = c.dropParentUntil(J.class::isInstance);
+                    return getTypeSafe(parent, parent.getValue());
+                }
+            }
+        } else if (firstEnclosing instanceof J.Parentheses) {
+            J.Parentheses<?> parentheses = (J.Parentheses<?>) firstEnclosing;
+            if (parentheses.getTree() == e) {
+                Cursor parent = c.dropParentUntil(J.class::isInstance);
+                return getTypeSafe(parent, parent.getValue());
+            }
+        } else if (firstEnclosing instanceof J.VariableDeclarations.NamedVariable) {
+            J.VariableDeclarations.NamedVariable namedVariable = (J.VariableDeclarations.NamedVariable) firstEnclosing;
+            if (namedVariable.getInitializer() == e) {
+                return Optional.ofNullable(namedVariable.getType());
+            }
+        } else if (firstEnclosing instanceof J.Assignment) {
+            J.Assignment assignment = (J.Assignment) firstEnclosing;
+            if (assignment.getAssignment() == e) {
+                return Optional.ofNullable(assignment.getType());
+            }
+        } else if (firstEnclosing instanceof J.ForLoop.Control) {
+            J.ForLoop.Control control = (J.ForLoop.Control) firstEnclosing;
+            if (control.getCondition() == e) {
+                return Optional.of(JavaType.Primitive.Boolean);
+            }
         }
         return Optional.empty();
     }

@@ -16,6 +16,7 @@ include(
     "rewrite-groovy",
     "rewrite-hcl",
     "rewrite-java",
+    "rewrite-java-tck",
     "rewrite-java-8",
     "rewrite-java-11",
     "rewrite-java-17",
@@ -33,7 +34,6 @@ include(
 plugins {
     id("com.gradle.enterprise") version "latest.release"
     id("com.gradle.common-custom-user-data-gradle-plugin") version "latest.release"
-    id("com.gradle.enterprise.test-distribution") version "latest.release"
 }
 
 gradleEnterprise {

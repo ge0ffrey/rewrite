@@ -16,9 +16,7 @@
 package org.openrewrite.hcl
 
 import org.junit.jupiter.api.Test
-import org.openrewrite.ExecutionContext
-import org.openrewrite.hcl.tree.Expression
-import org.openrewrite.hcl.tree.Hcl
+import org.openrewrite.hcl.Assertions.hcl
 import org.openrewrite.test.RewriteTest
 
 class DeleteContentTest : RewriteTest {

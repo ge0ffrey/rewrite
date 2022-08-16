@@ -17,6 +17,7 @@ package org.openrewrite.java.controlflow;
 
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
+import lombok.Value;
 import org.openrewrite.Cursor;
 import org.openrewrite.Incubating;
 import org.openrewrite.Tree;
@@ -24,14 +25,17 @@ import org.openrewrite.internal.lang.Nullable;
 import org.openrewrite.java.JavaIsoVisitor;
 import org.openrewrite.java.JavaTemplate;
 import org.openrewrite.java.tree.*;
+import org.openrewrite.marker.Markers;
 
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static org.openrewrite.java.controlflow.ControlFlowIllegalStateException.*;
+
 @Incubating(since = "7.25.0")
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
-public class ControlFlow {
+public final class ControlFlow {
     private static final String CONTROL_FLOW_MESSAGE_KEY = "__CONTROL_FLOW_SUMMARY";
 
     @Nullable
@@ -46,12 +50,23 @@ public class ControlFlow {
             return Optional.empty();
         }
         return start.computeMessageIfAbsent(CONTROL_FLOW_MESSAGE_KEY, __ -> {
-            ControlFlowNode.Start startNode = ControlFlowNode.Start.create();
-            ControlFlowAnalysis<Integer> analysis = new ControlFlowAnalysis<>(startNode, true);
-            analysis.visit(start.getValue(), 1, start);
-            ControlFlowNode.End end = (ControlFlowNode.End) analysis.current.iterator().next();
-            return Optional.of(ControlFlowSummary.forGraph(startNode, end));
+            ControlFlowSimpleSummary summary = findControlFlowInternal(start, ControlFlowNode.GraphType.METHOD_BODY_OR_STATIC_INITIALIZER_OR_INSTANCE_INITIALIZER);
+            return Optional.of(ControlFlowSummary.forGraph(summary.start, summary.end));
         });
+    }
+
+    private static ControlFlowSimpleSummary findControlFlowInternal(Cursor start, ControlFlowNode.GraphType graphType) {
+        ControlFlowNode.Start startNode = ControlFlowNode.Start.create(graphType);
+        ControlFlowAnalysis<Integer> analysis = new ControlFlowAnalysis<>(startNode, true);
+        analysis.visit(start.getValue(), 1, start.getParentOrThrow());
+        ControlFlowNode.End end = (ControlFlowNode.End) analysis.current.iterator().next();
+        return new ControlFlowSimpleSummary(startNode, end);
+    }
+
+    @Value
+    private static class ControlFlowSimpleSummary {
+        ControlFlowNode.Start start;
+        ControlFlowNode.End end;
     }
 
     public static ControlFlow startingAt(Cursor start) {
@@ -78,6 +93,8 @@ public class ControlFlow {
          */
         protected Set<? extends ControlFlowNode> current;
 
+        private final ControlFlowNode.GraphType graphType;
+
         private final boolean methodEntryPoint;
 
         /**
@@ -95,22 +112,41 @@ public class ControlFlow {
          */
         private final Set<ControlFlowNode> breakFlow = new HashSet<>();
 
-        ControlFlowAnalysis(ControlFlowNode start, boolean methodEntryPoint) {
+        ControlFlowAnalysis(ControlFlowNode.Start start, boolean methodEntryPoint) {
             this.current = Collections.singleton(Objects.requireNonNull(start, "start cannot be null"));
+            this.graphType = start.getGraphType();
             this.methodEntryPoint = methodEntryPoint;
         }
 
-        ControlFlowAnalysis(Set<? extends ControlFlowNode> current) {
+        ControlFlowAnalysis(Set<? extends ControlFlowNode> current, ControlFlowNode.GraphType graphType) {
             this.current = Objects.requireNonNull(current, "current cannot be null");
+            this.graphType = Objects.requireNonNull(graphType, "graphType cannot be null");
             this.methodEntryPoint = false;
         }
 
         ControlFlowNode.BasicBlock currentAsBasicBlock() {
+            if (current.isEmpty()) {
+                throw new ControlFlowIllegalStateException(exceptionMessageBuilder("No current node!").addCursor(getCursor()));
+            }
             assert !current.isEmpty() : "No current node!";
             if (current.size() == 1 && current.iterator().next() instanceof ControlFlowNode.BasicBlock) {
                 return (ControlFlowNode.BasicBlock) current.iterator().next();
             } else {
                 return addBasicBlockToCurrent();
+            }
+        }
+
+        /**
+         * Create a new, guaranteed to be empty {@link ControlFlowNode.BasicBlock}.
+         */
+        ControlFlowNode.BasicBlock newEmptyBasicBlockFromCurrent() {
+            ControlFlowNode.BasicBlock currentBasicBlock = currentAsBasicBlock();
+            if (currentBasicBlock.hasLeader()) {
+                // The current basic block is already non-empty. Create a new one.
+                return currentBasicBlock.addBasicBlock();
+            } else {
+                // The current basic block is empty. Return it.
+                return currentBasicBlock;
             }
         }
 
@@ -131,7 +167,7 @@ public class ControlFlow {
         }
 
         ControlFlowAnalysis<P> visitRecursive(Set<? extends ControlFlowNode> start, Tree toVisit, P param) {
-            ControlFlowAnalysis<P> analysis = new ControlFlowAnalysis<>(start);
+            ControlFlowAnalysis<P> analysis = new ControlFlowAnalysis<>(start, graphType);
             analysis.visit(toVisit, param, getCursor());
             return analysis;
         }
@@ -156,6 +192,14 @@ public class ControlFlow {
         }
 
         @Override
+        public J.Assignment visitAssignment(J.Assignment assignment, P p) {
+            addCursorToBasicBlock();
+            visit(assignment.getAssignment(), p);
+            visit(assignment.getVariable(), p);
+            return assignment;
+        }
+
+        @Override
         public J.Block visitBlock(J.Block block, P p) {
             addCursorToBasicBlock();
             for (Statement statement : block.getStatements()) {
@@ -172,7 +216,7 @@ public class ControlFlow {
                 }
             }
             if (methodEntryPoint) {
-                ControlFlowNode end = ControlFlowNode.End.create();
+                ControlFlowNode end = ControlFlowNode.End.create(this.graphType);
                 addSuccessorToCurrent(end);
                 exitFlow.forEach(exit -> exit.addSuccessor(end));
                 current = Collections.singleton(end);
@@ -234,8 +278,9 @@ public class ControlFlow {
 
         @Override
         public J.VariableDeclarations visitVariableDeclarations(J.VariableDeclarations multiVariable, P p) {
+            visit(multiVariable.getTypeExpression(), p);
             for (J.VariableDeclarations.NamedVariable variable : multiVariable.getVariables()) {
-                visit(variable.getInitializer(), p); // First the initializer is invoked
+                visit(variable, p);
             }
             addCursorToBasicBlock(); // Then the variable declaration
             return multiVariable;
@@ -287,13 +332,22 @@ public class ControlFlow {
             }).collect(Collectors.toSet());
         }
 
-        private static ControlFlowNode.ConditionNode getControlFlowNodeMissingSuccessors(Set<ControlFlowNode.ConditionNode> nodes) {
+        private static ControlFlowNode.ConditionNode getControlFlowNodeMissingOneSuccessor(Set<ControlFlowNode.ConditionNode> nodes) {
             for (ControlFlowNode.ConditionNode node : nodes) {
-                if (node.getTruthySuccessor() == null || node.getFalsySuccessor() == null) {
+                if (node.getTruthySuccessor() == null ^ node.getFalsySuccessor() == null) {
                     return node;
                 }
             }
-            throw new IllegalArgumentException("No control flow node missing successors");
+            throw new IllegalArgumentException("No control flow node missing only one successor");
+        }
+
+        private static ControlFlowNode.ConditionNode getControlFlowNodeMissingBothSuccessors(Set<ControlFlowNode.ConditionNode> nodes) {
+            for (ControlFlowNode.ConditionNode node : nodes) {
+                if (node.getTruthySuccessor() == null && node.getFalsySuccessor() == null) {
+                    return node;
+                }
+            }
+            throw new IllegalArgumentException("No control flow node missing both successors");
         }
 
         private interface BranchingAdapter {
@@ -307,7 +361,7 @@ public class ControlFlow {
                 return new BranchingAdapter() {
                     @Override
                     public Expression getCondition() {
-                        return ifStatement.getIfCondition().getTree();
+                        return ifStatement.getIfCondition();
                     }
 
                     @Override
@@ -348,11 +402,12 @@ public class ControlFlow {
 
             // First the condition is invoked
             ControlFlowAnalysis<P> conditionAnalysis = visitRecursiveTransferringAll(current, branching.getCondition(), p);
+            J truePart = branching.getTruePart();
 
             Set<ControlFlowNode.ConditionNode> conditionNodes = allAsConditionNodesMissingTruthFirst(conditionAnalysis.current);
             // Then the then block is visited
             ControlFlowAnalysis<P> thenAnalysis = visitRecursiveTransferringAll(conditionNodes, branching.getTruePart(), p);
-            Set<ControlFlowNode> newCurrent = Collections.singleton(getControlFlowNodeMissingSuccessors(conditionNodes));
+            Set<ControlFlowNode> newCurrent = Collections.singleton(getControlFlowNodeMissingOneSuccessor(conditionNodes));
             if (branching.getFalsePart() != null) {
                 // Then the else block is visited
                 ControlFlowAnalysis<P> elseAnalysis = visitRecursiveTransferringAll(newCurrent, branching.getFalsePart(), p);
@@ -374,18 +429,26 @@ public class ControlFlow {
             return iff;
         }
 
+        @SuppressWarnings("SpellCheckingInspection")
+        @Override
+        public J.If.Else visitElse(J.If.Else elze, P p) {
+            addCursorToBasicBlock();
+            visit(elze.getBody(), p);
+            return elze;
+        }
+
         @Override
         public J.Binary visitBinary(J.Binary binary, P p) {
             if (J.Binary.Type.And.equals(binary.getOperator())) {
                 ControlFlowAnalysis<P> left = visitRecursive(current, binary.getLeft(), p);
                 Set<ControlFlowNode.ConditionNode> conditionNodes = allAsConditionNodesMissingTruthFirst(left.current);
                 ControlFlowAnalysis<P> right = visitRecursive(conditionNodes, binary.getRight(), p);
-                current = Stream.concat(right.current.stream(), Stream.of(getControlFlowNodeMissingSuccessors(conditionNodes))).collect(Collectors.toSet());
+                current = Stream.concat(right.current.stream(), Stream.of(getControlFlowNodeMissingOneSuccessor(conditionNodes))).collect(Collectors.toSet());
             } else if (J.Binary.Type.Or.equals(binary.getOperator())) {
                 ControlFlowAnalysis<P> left = visitRecursive(current, binary.getLeft(), p);
                 Set<ControlFlowNode.ConditionNode> conditionNodes = allAsConditionNodesMissingFalseFirst(left.current);
                 ControlFlowAnalysis<P> right = visitRecursive(conditionNodes, binary.getRight(), p);
-                current = Stream.concat(Stream.of(getControlFlowNodeMissingSuccessors(conditionNodes)), right.current.stream()).collect(Collectors.toSet());
+                current = Stream.concat(Stream.of(getControlFlowNodeMissingOneSuccessor(conditionNodes)), right.current.stream()).collect(Collectors.toSet());
             } else {
                 visit(binary.getLeft(), p); // First the left is invoked
                 visit(binary.getRight(), p); // Then the right is invoked
@@ -404,20 +467,19 @@ public class ControlFlow {
         @Override
         public J.DoWhileLoop visitDoWhileLoop(J.DoWhileLoop doWhileLoop, P p) {
             addCursorToBasicBlock(); // Add the while node first
-            ControlFlowNode.BasicBlock entryBlock = currentAsBasicBlock();
-            ControlFlowNode.BasicBlock basicBlock = entryBlock.addBasicBlock();
+            ControlFlowNode.BasicBlock basicBlock = newEmptyBasicBlockFromCurrent();
             // First the body is visited
             // Only transfer exits
             ControlFlowAnalysis<P> bodyAnalysis = visitRecursiveTransferringExit(Collections.singleton(basicBlock), doWhileLoop.getBody(), p);
             // Then the condition is invoked
-            ControlFlowAnalysis<P> conditionAnalysis = visitRecursive(bodyAnalysis.current, doWhileLoop.getWhileCondition().getTree(), p);
+            ControlFlowAnalysis<P> conditionAnalysis = visitRecursive(bodyAnalysis.current, doWhileLoop.getWhileCondition(), p);
             Set<ControlFlowNode.ConditionNode> conditionNodes = allAsConditionNodesMissingTruthFirst(conditionAnalysis.current);
             // Add the 'loop' in
             conditionNodes.forEach(conditionNode -> {
                 conditionNode.addSuccessor(basicBlock);
                 bodyAnalysis.continueFlow.forEach(continueNode -> continueNode.addSuccessor(conditionNode));
             });
-            current = Stream.concat(Stream.of(getControlFlowNodeMissingSuccessors(conditionNodes)), bodyAnalysis.breakFlow.stream()).collect(Collectors.toSet());
+            current = Stream.concat(Stream.of(getControlFlowNodeMissingOneSuccessor(conditionNodes)), bodyAnalysis.breakFlow.stream()).collect(Collectors.toSet());
             return doWhileLoop;
         }
 
@@ -426,7 +488,7 @@ public class ControlFlow {
             addCursorToBasicBlock(); // Add the while node first
             ControlFlowNode.BasicBlock entryBlock = currentAsBasicBlock();
             // First the condition is invoked
-            ControlFlowAnalysis<P> conditionAnalysis = visitRecursive(Collections.singleton(entryBlock), whileLoop.getCondition().getTree(), p);
+            ControlFlowAnalysis<P> conditionAnalysis = visitRecursive(Collections.singleton(entryBlock), whileLoop.getCondition(), p);
             Set<ControlFlowNode.ConditionNode> conditionNodes = allAsConditionNodesMissingTruthFirst(conditionAnalysis.current);
             // Then the body is visited
             // Only transfer exits
@@ -434,7 +496,8 @@ public class ControlFlow {
             // Add the 'loop' in
             bodyAnalysis.current.forEach(controlFlowNode -> controlFlowNode.addSuccessor(entryBlock.getSuccessor()));
             bodyAnalysis.continueFlow.forEach(controlFlowNode -> controlFlowNode.addSuccessor(entryBlock.getSuccessor()));
-            current = Stream.concat(Stream.of(getControlFlowNodeMissingSuccessors(conditionNodes)), bodyAnalysis.breakFlow.stream()).collect(Collectors.toSet());
+            current = Stream.concat(Stream.of(getControlFlowNodeMissingOneSuccessor(conditionNodes)), bodyAnalysis.breakFlow.stream()).collect(Collectors.toSet());
+
             return whileLoop;
         }
 
@@ -452,14 +515,22 @@ public class ControlFlow {
             addCursorToBasicBlock(); // Add the for node first
             // First the control is invoked
             ControlFlowNode.BasicBlock[] entryBlock = new ControlFlowNode.BasicBlock[1];
-            ControlFlowAnalysis<P> controlAnalysisFirstBit = new ControlFlowAnalysis<P>(current) {
+            ControlFlowAnalysis<P> controlAnalysisFirstBit = new ControlFlowAnalysis<P>(current, graphType) {
                 @Override
                 public J.ForLoop.Control visitForControl(J.ForLoop.Control control, P p) {
                     // First the initialization is invoked
                     visit(control.getInit(), p);
                     entryBlock[0] = currentAsBasicBlock();
                     // Then the condition is invoked
-                    ControlFlowAnalysis<P> conditionAnalysis = visitRecursive(current, control.getCondition(), p);
+                    final Expression condition;
+                    if (control.getCondition() instanceof J.Empty) {
+                        // If the condition is empty, then the condition is always true.
+                        // The AST won't have this, as allowing an empty statement is syntactic sugar for `true`.
+                        condition = trueLiteral();
+                    } else {
+                        condition = control.getCondition();
+                    }
+                    ControlFlowAnalysis<P> conditionAnalysis = visitRecursive(current, condition, p);
                     current = allAsConditionNodesMissingTruthFirst(conditionAnalysis.current);
                     return control;
                 }
@@ -470,28 +541,45 @@ public class ControlFlow {
             // Only transfer the exit
             ControlFlowAnalysis<P> bodyAnalysis = visitRecursiveTransferringExit(controlAnalysisFirstBit.current, forLoop.getBody(), p);
             // Then the update is invoked
-            ControlFlowAnalysis<P> controlAnalysisSecondBit = new ControlFlowAnalysis<P>(bodyAnalysis.current) {
+            ControlFlowAnalysis<P> controlAnalysisSecondBit = new ControlFlowAnalysis<P>(bodyAnalysis.current, graphType) {
                 @Override
                 public J.ForLoop.Control visitForControl(J.ForLoop.Control control, P p) {
+                    if (current.isEmpty()) {
+                        // The for loop ended in a return statement, so we need to create a new basic block for the update
+                        current = Collections.singleton(ControlFlowNode.BasicBlock.create());
+                    }
                     // Now the update is invoked
                     if (control.getUpdate().isEmpty() || control.getUpdate().get(0) instanceof J.Empty) {
                         visit(control.getUpdate(), p);
                         return control;
                     }
-                    current = Collections.singleton(currentAsBasicBlock().addBasicBlock());
+                    current = Collections.singleton(newEmptyBasicBlockFromCurrent());
                     visit(control.getUpdate(), p);
                     return control;
                 }
             };
             controlAnalysisSecondBit.visit(forLoop.getControl(), p, getCursor());
+            // Point any `continue` nodes to the condition node
+            bodyAnalysis.continueFlow.forEach(continueControlFlowNode -> continueControlFlowNode.addSuccessor(entryBlock[0].getSuccessor()));
             // Add the 'increment' statement to the basic block as the last element
             controlAnalysisSecondBit.current.forEach(controlFlowNode -> {
-                bodyAnalysis.continueFlow.forEach(continueControlFlowNode -> continueControlFlowNode.addSuccessor(controlFlowNode));
                 controlFlowNode.addSuccessor(entryBlock[0].getSuccessor());
             });
 
-            current = Stream.concat(Stream.of(getControlFlowNodeMissingSuccessors(allAsConditionNodesMissingTruthFirst(controlAnalysisFirstBit.current))), bodyAnalysis.breakFlow.stream()).collect(Collectors.toSet());
+            current = Stream.concat(Stream.of(getControlFlowNodeMissingOneSuccessor(allAsConditionNodesMissingTruthFirst(controlAnalysisFirstBit.current))), bodyAnalysis.breakFlow.stream()).collect(Collectors.toSet());
             return forLoop;
+        }
+
+        private static J.Literal trueLiteral() {
+            return new J.Literal(
+                    Tree.randomId(),
+                    Space.EMPTY,
+                    Markers.EMPTY,
+                    true,
+                    "true",
+                    null,
+                    JavaType.Primitive.Boolean
+            );
         }
 
         @Override
@@ -501,7 +589,8 @@ public class ControlFlow {
             // This "fake" allows us to preserve some fundamental assumptions about the ControlFlowNode graph,
             // in particular that a given BasicBlock only has one successor
             addCursorToBasicBlock();
-            ControlFlowAnalysis<P> controlAnalysis = new ControlFlowAnalysis<P>(current) {
+            visit(forLoop.getControl(), p);
+            ControlFlowAnalysis<P> controlAnalysis = new ControlFlowAnalysis<P>(current, graphType) {
                 @Override
                 public J.ForEachLoop.Control visitForEachControl(J.ForEachLoop.Control control, P p) {
                     visit(control.getIterable(), p);
@@ -515,11 +604,11 @@ public class ControlFlow {
             visit(fakeConditionalMethod, p);
 
             ControlFlowNode.ConditionNode conditionalEntry = controlAnalysis.currentAsBasicBlock().addConditionNodeTruthFirst();
-            ControlFlowAnalysis<P> bodyAnalysis = visitRecursiveTransferringAll(Collections.singleton(conditionalEntry), forLoop.getBody(), p);
-            bodyAnalysis.current.forEach(controlFlowNode -> {
-                controlFlowNode.addSuccessor(conditionalEntry);
-                bodyAnalysis.continueFlow.forEach(continueFlowNode -> continueFlowNode.addSuccessor(controlFlowNode));
-            });
+            ControlFlowAnalysis<P> bodyAnalysis = visitRecursiveTransferringExit(Collections.singleton(conditionalEntry), forLoop.getBody(), p);
+            // Point any `continue` nodes to the condition node
+            bodyAnalysis.continueFlow.forEach(continueFlowNode -> continueFlowNode.addSuccessor(conditionalEntry));
+            // Add the iterate statement to the basic block as the last element
+            bodyAnalysis.current.forEach(controlFlowNode -> controlFlowNode.addSuccessor(conditionalEntry));
             current = Stream.concat(Stream.of(conditionalEntry), bodyAnalysis.breakFlow.stream()).collect(Collectors.toSet());
             return forLoop;
         }
@@ -573,7 +662,7 @@ public class ControlFlow {
             if (_try.getFinally() == null) {
                 visit(_try.getBody(), p);
             } else {
-                ControlFlowAnalysis<P> tryBodyAnalysis = new ControlFlowAnalysis<>(current);
+                ControlFlowAnalysis<P> tryBodyAnalysis = new ControlFlowAnalysis<>(current, graphType);
                 tryBodyAnalysis.visit(_try.getBody(), p, getCursor());
                 if (!tryBodyAnalysis.current.isEmpty()) {
                     ControlFlowAnalysis<P> finallyAnalysisFromCurrent =
@@ -608,9 +697,38 @@ public class ControlFlow {
         }
 
         @Override
+        public J.Lambda visitLambda(J.Lambda lambda, P p) {
+            addCursorToBasicBlock();
+            if (lambda.getBody() instanceof J.Block) {
+                ControlFlowSimpleSummary summary = findControlFlowInternal(new Cursor(getCursor(), lambda.getBody()), ControlFlowNode.GraphType.LAMBDA);
+                currentAsBasicBlock().addSuccessor(summary.start);
+                current = Collections.singleton(summary.end);
+                return lambda;
+            } else {
+                return super.visitLambda(lambda, p);
+            }
+        }
+
+        @Override
+        public J.ClassDeclaration visitClassDeclaration(J.ClassDeclaration classDecl, P p) {
+            addCursorToBasicBlock();
+            return classDecl;
+        }
+
+        @Override
         public J.Switch visitSwitch(J.Switch _switch, P p) {
             addCursorToBasicBlock();
             return _switch;
+        }
+
+        @Override
+        public J.Empty visitEmpty(J.Empty empty, P p) {
+            J.MethodInvocation parent = getCursor().firstEnclosing(J.MethodInvocation.class);
+            if (parent != null && parent.getArguments().contains(empty)) {
+                return empty;
+            }
+            addCursorToBasicBlock();
+            return super.visitEmpty(empty, p);
         }
 
         @Override

@@ -15,13 +15,15 @@
  */
 package org.openrewrite.marker;
 
-import lombok.Value;
-import lombok.With;
+import lombok.*;
+import lombok.experimental.FieldDefaults;
 import org.openrewrite.internal.lang.Nullable;
 
 import java.util.UUID;
 
-@Value
+@RequiredArgsConstructor
+@FieldDefaults(makeFinal = true, level = AccessLevel.PRIVATE)
+@Getter
 @With
 public class SearchResult implements Marker {
     UUID id;

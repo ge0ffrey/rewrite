@@ -18,41 +18,14 @@ package org.openrewrite.test;
 import org.assertj.core.api.SoftAssertions;
 import org.jetbrains.annotations.NotNull;
 import org.openrewrite.*;
-import org.openrewrite.cobol.CobolParser;
-import org.openrewrite.cobol.tree.Cobol;
 import org.openrewrite.config.Environment;
-import org.openrewrite.gradle.GradleParser;
-import org.openrewrite.groovy.GroovyParser;
-import org.openrewrite.groovy.tree.G;
-import org.openrewrite.hcl.HclParser;
-import org.openrewrite.hcl.tree.Hcl;
 import org.openrewrite.internal.ListUtils;
 import org.openrewrite.internal.StringUtils;
 import org.openrewrite.internal.lang.Nullable;
-import org.openrewrite.java.JavaParser;
-import org.openrewrite.java.TypeValidation;
-import org.openrewrite.java.marker.JavaSourceSet;
-import org.openrewrite.java.tree.J;
-import org.openrewrite.java.tree.JavaSourceFile;
-import org.openrewrite.json.JsonParser;
-import org.openrewrite.json.tree.Json;
-import org.openrewrite.maven.MavenExecutionContextView;
-import org.openrewrite.maven.MavenParser;
-import org.openrewrite.maven.MavenSettings;
-import org.openrewrite.properties.PropertiesParser;
-import org.openrewrite.properties.tree.Properties;
-import org.openrewrite.protobuf.ProtoParser;
-import org.openrewrite.protobuf.tree.Proto;
+import org.openrewrite.marker.SourceSet;
 import org.openrewrite.quark.Quark;
-import org.openrewrite.quark.QuarkParser;
 import org.openrewrite.remote.Remote;
 import org.openrewrite.scheduling.DirectScheduler;
-import org.openrewrite.text.PlainText;
-import org.openrewrite.text.PlainTextParser;
-import org.openrewrite.xml.XmlParser;
-import org.openrewrite.xml.tree.Xml;
-import org.openrewrite.yaml.YamlParser;
-import org.openrewrite.yaml.tree.Yaml;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -159,6 +132,9 @@ public interface RewriteTest extends SourceSpecs {
         } else {
             executionContext = defaultExecutionContext(sourceSpecs);
         }
+        for(SourceSpec<?> s : sourceSpecs) {
+            s.customizeExecutionContext.accept(executionContext);
+        }
 
         Map<ParserSupplier, List<SourceSpec<?>>> sourceSpecsByParser = new HashMap<>();
 
@@ -174,63 +150,7 @@ public interface RewriteTest extends SourceSpecs {
             }
 
             // ----- default parsers for each SourceFile type -------------------------
-            if (Quark.class.equals(sourceSpec.sourceFileType)) {
-                sourceSpecsByParser.computeIfAbsent(
-                        new ParserSupplier(Quark.class, sourceSpec.dsl, QuarkParser::new),
-                        p -> new ArrayList<>()).add(sourceSpec);
-            } else if (J.CompilationUnit.class.equals(sourceSpec.sourceFileType)) {
-                sourceSpecsByParser.computeIfAbsent(
-                        new ParserSupplier(J.CompilationUnit.class, sourceSpec.dsl, () -> JavaParser.fromJavaVersion()
-                                .logCompilationWarningsAndErrors(true)
-                                .build()),
-                        p -> new ArrayList<>()).add(sourceSpec);
-            } else if (Xml.Document.class.equals(sourceSpec.sourceFileType)) {
-                sourceSpecsByParser.computeIfAbsent(
-                        new ParserSupplier(Xml.Document.class, sourceSpec.dsl, () -> {
-                            if ("maven".equals(sourceSpec.dsl)) {
-                                return MavenParser.builder().build();
-                            }
-                            return new XmlParser();
-                        }),
-                        p -> new ArrayList<>()).add(sourceSpec);
-            } else if (G.CompilationUnit.class.equals(sourceSpec.sourceFileType)) {
-                sourceSpecsByParser.computeIfAbsent(
-                        new ParserSupplier(G.CompilationUnit.class, sourceSpec.dsl, () -> {
-                            if ("gradle".equals(sourceSpec.dsl)) {
-                                return new GradleParser(GroovyParser.builder());
-                            }
-                            return GroovyParser.builder().build();
-                        }),
-                        p -> new ArrayList<>()).add(sourceSpec);
-            } else if (Yaml.Documents.class.equals(sourceSpec.sourceFileType)) {
-                sourceSpecsByParser.computeIfAbsent(
-                        new ParserSupplier(Yaml.Documents.class, sourceSpec.dsl, YamlParser::new),
-                        p -> new ArrayList<>()).add(sourceSpec);
-            } else if (Json.Document.class.equals(sourceSpec.sourceFileType)) {
-                sourceSpecsByParser.computeIfAbsent(
-                        new ParserSupplier(Json.Document.class, sourceSpec.dsl, JsonParser::new),
-                        p -> new ArrayList<>()).add(sourceSpec);
-            } else if (Hcl.ConfigFile.class.equals(sourceSpec.sourceFileType)) {
-                sourceSpecsByParser.computeIfAbsent(
-                        new ParserSupplier(Hcl.ConfigFile.class, sourceSpec.dsl, () -> HclParser.builder().build()),
-                        p -> new ArrayList<>()).add(sourceSpec);
-            } else if (Proto.Document.class.equals(sourceSpec.sourceFileType)) {
-                sourceSpecsByParser.computeIfAbsent(
-                        new ParserSupplier(Proto.Document.class, sourceSpec.dsl, ProtoParser::new),
-                        p -> new ArrayList<>()).add(sourceSpec);
-            } else if (PlainText.class.equals(sourceSpec.sourceFileType)) {
-                sourceSpecsByParser.computeIfAbsent(
-                        new ParserSupplier(PlainText.class, sourceSpec.dsl, PlainTextParser::new),
-                        p -> new ArrayList<>()).add(sourceSpec);
-            } else if (Properties.File.class.equals(sourceSpec.sourceFileType)) {
-                sourceSpecsByParser.computeIfAbsent(
-                        new ParserSupplier(Properties.File.class, sourceSpec.dsl, PropertiesParser::new),
-                        p -> new ArrayList<>()).add(sourceSpec);
-            } else if (Cobol.CompilationUnit.class.equals(sourceSpec.sourceFileType)) {
-                sourceSpecsByParser.computeIfAbsent(
-                        new ParserSupplier(Cobol.CompilationUnit.class, sourceSpec.dsl, CobolParser::new),
-                        p -> new ArrayList<>()).add(sourceSpec);
-            }
+            sourceSpecsByParser.computeIfAbsent(sourceSpec.getParserSupplier(), p -> new ArrayList<>()).add(sourceSpec);
         }
 
         Map<SourceFile, SourceSpec<?>> specBySourceFile = new HashMap<>(sourceSpecs.length);
@@ -241,9 +161,13 @@ public interface RewriteTest extends SourceSpecs {
                     continue;
                 }
                 String beforeTrimmed = trimIndentPreserveCRLF(sourceSpec.before);
-                Path sourcePath = sourceSpec.sourcePath != null ?
-                        sourceSpec.dir.resolve(sourceSpec.sourcePath) :
-                        sourceSpecsForParser.getKey().get().sourcePathFromSourceText(sourceSpec.dir, beforeTrimmed);
+                Path sourcePath;
+                if (sourceSpec.sourcePath != null) {
+                    sourcePath = sourceSpec.dir.resolve(sourceSpec.sourcePath);
+                } else {
+                    sourcePath = sourceSpecsForParser.getKey().get()
+                            .sourcePathFromSourceText(sourceSpec.dir, beforeTrimmed);
+                }
                 inputs.put(sourceSpec, new Parser.Input(sourcePath, () -> new ByteArrayInputStream(beforeTrimmed.getBytes(StandardCharsets.UTF_8))));
             }
 
@@ -269,24 +193,26 @@ public interface RewriteTest extends SourceSpecs {
                 sourceFile = sourceFile.withMarkers(sourceFile.getMarkers().withMarkers(ListUtils.concatAll(
                         sourceFile.getMarkers().getMarkers(), nextSpec.markers)));
 
-                // Update the default 'main' JavaSourceSet Marker added by the JavaParser with the specs sourceSetName
-                sourceFile = sourceFile.withMarkers((sourceFile.getMarkers().withMarkers(ListUtils.map(sourceFile.getMarkers().getMarkers(), m -> {
-                    if (m instanceof JavaSourceSet) {
-                        m = ((JavaSourceSet) m).withName(nextSpec.sourceSetName);
-                    }
-                    return m;
-                }))));
+                // Update the default 'main' SourceSet Marker added by the JavaParser with the specs sourceSetName
+                if(nextSpec.sourceSetName != null) {
+                    sourceFile = sourceFile.withMarkers((sourceFile.getMarkers().withMarkers(ListUtils.map(sourceFile.getMarkers().getMarkers(), m -> {
+                        if (m instanceof SourceSet) {
+                            m = ((SourceSet) m).withName(nextSpec.sourceSetName);
+                        }
+                        return m;
+                    }))));
+                }
 
                 // Validate that printing a parsed AST yields the same source text
                 int j = 0;
                 for (Parser.Input input : inputs.values()) {
                     if (j++ == i && !(sourceFile instanceof Quark)) {
-                        assertThat(trimIndentPreserveCRLF(sourceFile.printAll()))
+                        assertThat(sourceFile.printAll())
                                 .as("When parsing and printing the source code back to text without modifications, " +
                                         "the printed source didn't match the original source code. This means there is a bug in the " +
                                         "parser implementation itself. Please open an issue to report this, providing a sample of the " +
                                         "code that generated this error!")
-                                .isEqualTo(trimIndentPreserveCRLF(StringUtils.readFully(input.getSource())));
+                                .isEqualTo(StringUtils.readFully(input.getSource()));
                     }
                 }
 
@@ -320,44 +246,65 @@ public interface RewriteTest extends SourceSpecs {
             }
         }
 
-        // take one pass at this attempting to satisfy expected new sources, checking Remote last to optimize
-        // for not downloading huge files in unit tests if not necessary.
+
+        nextSourceSpec:
         for (SourceSpec<?> sourceSpec : expectedNewSources) {
-            if (sourceSpec.before == null) {
+            assertThat(sourceSpec.after).as("Either before or after must be specified in a SourceSpec").isNotNull();
+            // If the source spec defines a source path, look for a result where there is a new file at that path.
+            if (sourceSpec.getSourcePath() != null) {
+                // If sourceSpec defines a source path, enforce there is a result that has the same source path and
+                // the contents match the expected value.
                 for (Result result : results) {
-                    if (result.getAfter() != null && !(result.getAfter() instanceof Remote)) {
-                        assertThat(sourceSpec.after).as("Either before or after must be specified in a SourceSpec").isNotNull();
-                        String actual = result.getAfter().printAll();
+                    if (result.getAfter() != null && sourceSpec.getSourcePath().equals(result.getAfter().getSourcePath())) {
+                        expectedNewSources.remove(sourceSpec);
+                        assertThat(result.getBefore())
+                                .as("Expected a new file for the source path but there was an existing file already present: " +
+                                        sourceSpec.getSourcePath())
+                                .isNull();
+                        String actual = result.getAfter().printAll().trim();
                         String expected = trimIndentPreserveCRLF(sourceSpec.after);
-                        if (actual.equals(expected)) {
-                            expectedNewSources.remove(sourceSpec);
-                            //noinspection unchecked
-                            ((Consumer<SourceFile>) sourceSpec.afterRecipe).accept(result.getAfter());
-                            if (sourceSpec.sourcePath != null) {
-                                assertThat(result.getAfter().getSourcePath())
-                                        .isEqualTo(sourceSpec.dir.resolve(sourceSpec.sourcePath));
-                            }
-                            break;
-                        }
+                        assertThat(actual).isEqualTo(expected);
+                        continue nextSourceSpec;
                     }
                 }
+                fail("Expected a new source file with the source path " + sourceSpec.getSourcePath());
+            }
 
-                // we tried to avoid it, and now we'll try to match against remotes...
-                for (Result result : results) {
-                    if (result.getAfter() instanceof Remote) {
-                        assertThat(sourceSpec.after).as("Either before or after must be specified in a SourceSpec").isNotNull();
-                        String actual = result.getAfter().printAll();
-                        String expected = trimIndentPreserveCRLF(sourceSpec.after);
-                        if (actual.equals(expected)) {
-                            expectedNewSources.remove(sourceSpec);
-                            //noinspection unchecked
-                            ((Consumer<SourceFile>) sourceSpec.afterRecipe).accept(result.getAfter());
-                            if (sourceSpec.sourcePath != null) {
-                                assertThat(result.getAfter().getSourcePath())
-                                        .isEqualTo(sourceSpec.dir.resolve(sourceSpec.sourcePath));
-                            }
-                            break;
+            // If the source spec has not defined a source path, look for a result with the exact contents. This logic
+            // first looks for non-remote results.
+            for (Result result : results) {
+                if (result.getAfter() != null && !(result.getAfter() instanceof Remote)) {
+                    assertThat(sourceSpec.after).as("Either before or after must be specified in a SourceSpec").isNotNull();
+                    String actual = result.getAfter().printAll().trim();
+                    String expected = trimIndentPreserveCRLF(sourceSpec.after);
+                    if (actual.equals(expected)) {
+                        expectedNewSources.remove(sourceSpec);
+                        //noinspection unchecked
+                        ((Consumer<SourceFile>) sourceSpec.afterRecipe).accept(result.getAfter());
+                        if (sourceSpec.sourcePath != null) {
+                            assertThat(result.getAfter().getSourcePath())
+                                    .isEqualTo(sourceSpec.dir.resolve(sourceSpec.sourcePath));
                         }
+                        break;
+                    }
+                }
+            }
+
+            // we tried to avoid it, and now we'll try to match against remotes...
+            for (Result result : results) {
+                if (result.getAfter() instanceof Remote) {
+                    assertThat(sourceSpec.after).as("Either before or after must be specified in a SourceSpec").isNotNull();
+                    String actual = result.getAfter().printAll();
+                    String expected = trimIndentPreserveCRLF(sourceSpec.after);
+                    if (actual.equals(expected)) {
+                        expectedNewSources.remove(sourceSpec);
+                        //noinspection unchecked
+                        ((Consumer<SourceFile>) sourceSpec.afterRecipe).accept(result.getAfter());
+                        if (sourceSpec.sourcePath != null) {
+                            assertThat(result.getAfter().getSourcePath())
+                                    .isEqualTo(sourceSpec.dir.resolve(sourceSpec.sourcePath));
+                        }
+                        break;
                     }
                 }
             }
@@ -373,13 +320,7 @@ public interface RewriteTest extends SourceSpecs {
                         String actual = result.getAfter().printAll();
                         String expected = trimIndentPreserveCRLF(expectedAfter);
                         assertThat(actual).isEqualTo(expected);
-                        if (result.getAfter() instanceof JavaSourceFile) {
-                            TypeValidation typeValidation = testMethodSpec.typeValidation != null ? testMethodSpec.typeValidation : testClassSpec.typeValidation;
-                            if (typeValidation == null) {
-                                typeValidation = new TypeValidation();
-                            }
-                            typeValidation.assertValidTypes((JavaSourceFile) result.getAfter());
-                        }
+                        specForSourceFile.getValue().eachResult.accept(result.getAfter(), testMethodSpec, testClassSpec);
                     } else if (expectedAfter == null && result.getAfter() != null) {
                         if (result.diff().isEmpty()) {
                             fail("An empty diff was generated. The recipe incorrectly changed a reference without changing its contents.");
@@ -429,27 +370,7 @@ public interface RewriteTest extends SourceSpecs {
     }
 
     default ExecutionContext defaultExecutionContext(SourceSpec<?>[] sourceSpecs) {
-        ExecutionContext executionContext = new InMemoryExecutionContext(
-                t -> fail("Failed to run parse sources or recipe", t));
-
-        for (SourceSpec<?> spec : sourceSpecs) {
-            if (J.CompilationUnit.class.equals(spec.sourceFileType)) {
-                executionContext.putMessage(JavaParser.SKIP_SOURCE_SET_TYPE_GENERATION, true);
-                break;
-            }
-        }
-
-        if (MavenSettings.readFromDiskEnabled()) {
-            for (SourceSpec<?> sourceSpec : sourceSpecs) {
-                if ("maven".equals(sourceSpec.dsl)) {
-                    MavenExecutionContextView.view(executionContext)
-                            .setMavenSettings(MavenSettings.readMavenSettingsFromDisk(executionContext));
-                    break;
-                }
-            }
-        }
-
-        return executionContext;
+        return new InMemoryExecutionContext(t -> fail("Failed to parse sources or run recipe", t));
     }
 
     @NotNull

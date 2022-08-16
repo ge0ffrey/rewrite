@@ -21,6 +21,7 @@ import org.openrewrite.ExecutionContext;
 import org.openrewrite.Option;
 import org.openrewrite.Recipe;
 import org.openrewrite.TreeVisitor;
+import org.openrewrite.internal.NameCaseConvention;
 import org.openrewrite.internal.StringUtils;
 import org.openrewrite.internal.lang.Nullable;
 import org.openrewrite.java.ChangeMethodName;
@@ -28,6 +29,7 @@ import org.openrewrite.java.JavaIsoVisitor;
 import org.openrewrite.java.MethodMatcher;
 import org.openrewrite.java.marker.JavaSourceSet;
 import org.openrewrite.java.tree.J;
+import org.openrewrite.java.tree.JavaType;
 import org.openrewrite.java.tree.TypeUtils;
 
 import java.time.Duration;
@@ -70,6 +72,7 @@ public class MethodNameCasing extends Recipe {
     @Override
     public TreeVisitor<?, ExecutionContext> getVisitor() {
         Pattern standardMethodName = Pattern.compile("^[a-z][a-zA-Z0-9]*$");
+        Pattern snakeCase = Pattern.compile("^[a-zA-Z0-9_]*$");
         return new JavaIsoVisitor<ExecutionContext>() {
 
             @Override
@@ -84,40 +87,49 @@ public class MethodNameCasing extends Recipe {
             @Override
             public J.MethodDeclaration visitMethodDeclaration(J.MethodDeclaration method, ExecutionContext executionContext) {
                 if (method.getMethodType() != null &&
+                        getCursor().firstEnclosingOrThrow(J.ClassDeclaration.class).getType() != null &&
                         !method.isConstructor() &&
                         !TypeUtils.isOverride(method.getMethodType()) &&
                         !standardMethodName.matcher(method.getSimpleName()).matches()) {
                     StringBuilder standardized = new StringBuilder();
-
                     char[] name = method.getSimpleName().toCharArray();
-                    for (int i = 0; i < name.length; i++) {
-                        char c = name[i];
 
-                        if (i == 0) {
-                            // the java specification requires identifiers to start with [a-zA-Z$_]
-                            if (c != '$' && c != '_') {
-                                standardized.append(Character.toLowerCase(c));
-                            }
-                        } else {
-                            if (!Character.isLetterOrDigit(c)) {
-                                while (i < name.length && (!Character.isLetterOrDigit(name[i]) || name[i] > 'z')) {
-                                    i++;
-                                }
-                                if (i < name.length) {
-                                    standardized.append(Character.toUpperCase(name[i]));
+                    if (snakeCase.matcher(method.getSimpleName()).matches()) {
+                        standardized.append(NameCaseConvention.format(NameCaseConvention.LOWER_CAMEL,method.getSimpleName().toLowerCase()));
+                    } else {
+                        for (int i = 0; i < name.length; i++) {
+                            char c = name[i];
+
+                            if (i == 0) {
+                                // the java specification requires identifiers to start with [a-zA-Z$_]
+                                if (c != '$' && c != '_') {
+                                    standardized.append(Character.toLowerCase(c));
                                 }
                             } else {
-                                standardized.append(c);
+                                if (!Character.isLetterOrDigit(c)) {
+                                    while (i < name.length && (!Character.isLetterOrDigit(name[i]) || name[i] > 'z')) {
+                                        i++;
+                                    }
+                                    if (i < name.length) {
+                                        standardized.append(Character.toUpperCase(name[i]));
+                                    }
+                                } else {
+                                    standardized.append(c);
+                                }
                             }
                         }
                     }
-
-                    if (!StringUtils.isBlank(standardized.toString())) {
+                    if (!StringUtils.isBlank(standardized.toString())
+                            && !methodExists(method.getMethodType(), standardized.toString())) {
                         doNext(new ChangeMethodName(MethodMatcher.methodPattern(method), standardized.toString(), true, false));
                     }
                 }
 
                 return super.visitMethodDeclaration(method, executionContext);
+            }
+
+            private boolean methodExists(JavaType.Method method, String newName) {
+                return TypeUtils.findDeclaredMethod(method.getDeclaringType(), newName, method.getParameterTypes()).orElse(null) != null;
             }
         };
     }

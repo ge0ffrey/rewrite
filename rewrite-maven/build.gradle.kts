@@ -8,12 +8,16 @@ plugins {
 apply(plugin = "nebula.integtest-standalone")
 
 val integTestImplementation = configurations.getByName("integTestImplementation")
-
+val rocksDbVersion = "7.4.3" // https://github.com/facebook/rocksdb/issues/10448
 dependencies {
     api(project(":rewrite-xml"))
     api("org.jetbrains:annotations:latest.release")
 
     api("com.fasterxml.jackson.core:jackson-annotations:latest.release")
+
+    compileOnly(project(":rewrite-test"))
+    compileOnly(kotlin("bom"))
+    compileOnly(kotlin("stdlib"))
 
     // Caffeine 2.x works with Java 8, Caffeine 3.x is Java 11 only.
     implementation("com.github.ben-manes.caffeine:caffeine:2.+")
@@ -27,18 +31,16 @@ dependencies {
     implementation("com.fasterxml.jackson.module:jackson-module-jaxb-annotations:latest.release")
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jdk8:latest.release")
 
-    implementation("org.slf4j:slf4j-api:1.7.+")
-
     // needed by AddDependency
     implementation(project(":rewrite-java"))
 
-    implementation("guru.nidi:graphviz-java:latest.release")
+    compileOnly("guru.nidi:graphviz-java:latest.release")
 
-    compileOnly("org.rocksdb:rocksdbjni:latest.release")
+    compileOnly("org.rocksdb:rocksdbjni:$rocksDbVersion")
     compileOnly(project(":rewrite-yaml"))
     compileOnly(project(":rewrite-properties"))
 
-    implementation("io.micrometer:micrometer-core:1.+")
+    implementation("io.micrometer:micrometer-core:1.9.+")
 
     implementation("org.apache.commons:commons-text:latest.release")
 
@@ -50,8 +52,8 @@ dependencies {
     integTestImplementation("org.eclipse.aether:aether-transport-http:latest.release")
     integTestImplementation("org.apache.maven:maven-aether-provider:latest.release")
     integTestImplementation("org.apache.maven:maven-core:latest.release")
-    integTestImplementation("io.micrometer:micrometer-registry-prometheus:1.+")
-    integTestImplementation("org.rocksdb:rocksdbjni:latest.release")
+    integTestImplementation("io.micrometer:micrometer-registry-prometheus:1.9+")
+    integTestImplementation("org.rocksdb:rocksdbjni:$rocksDbVersion")
 
     integTestImplementation(project(":rewrite-java-11"))
     integTestImplementation(project(":rewrite-properties"))
@@ -62,10 +64,11 @@ dependencies {
     testImplementation("ch.qos.logback:logback-classic:1.2.11")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.+")
     testImplementation("org.mapdb:mapdb:latest.release")
+    testImplementation("guru.nidi:graphviz-java:latest.release")
 
     testRuntimeOnly("org.mapdb:mapdb:latest.release")
     testRuntimeOnly(project(":rewrite-java-11"))
-    testRuntimeOnly("org.rocksdb:rocksdbjni:latest.release")
+    testRuntimeOnly("org.rocksdb:rocksdbjni:$rocksDbVersion")
     testRuntimeOnly("com.fasterxml.jackson.module:jackson-module-kotlin:latest.release")
 }
 

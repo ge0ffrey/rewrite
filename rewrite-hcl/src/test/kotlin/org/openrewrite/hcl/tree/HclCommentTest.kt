@@ -16,21 +16,42 @@
 package org.openrewrite.hcl.tree
 
 import org.junit.jupiter.api.Test
+import org.openrewrite.hcl.Assertions.hcl
+import org.openrewrite.test.RewriteTest
 
-class HclCommentTest : HclTreeTest {
+class HclCommentTest : RewriteTest {
 
     @Test
-    fun comment() = assertParsePrintAndProcess(
-        """
-            # test
-            /*
-             multiline
-            */
-            resource {
+    fun comment() = rewriteRun(
+        hcl(
+            """
                 # test
-                // test
-                a = 1
-            }
-        """.trimIndent()
+                /*
+                 multiline
+                */
+                resource {
+                    # test
+                    // test
+                    a = 1
+                }
+            """
+        )
+    )
+
+    @Test
+    fun commentCrlf() = rewriteRun(
+        hcl(
+            """
+                # test
+                /*
+                 multiline
+                */
+                resource {
+                    # test
+                    // test
+                    a = 1
+                }
+            """.replace("\r\n", "\n").replace("\n", "\r\n")
+        )
     )
 }

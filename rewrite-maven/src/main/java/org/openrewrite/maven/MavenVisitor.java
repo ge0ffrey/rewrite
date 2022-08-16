@@ -19,15 +19,16 @@ import org.openrewrite.ExecutionContext;
 import org.openrewrite.SourceFile;
 import org.openrewrite.TreeVisitor;
 import org.openrewrite.internal.lang.Nullable;
-import org.openrewrite.ipc.http.HttpUrlConnectionSender;
-import org.openrewrite.maven.tree.MavenMetadata;
 import org.openrewrite.maven.internal.MavenPomDownloader;
 import org.openrewrite.maven.tree.*;
 import org.openrewrite.xml.XPathMatcher;
 import org.openrewrite.xml.XmlVisitor;
 import org.openrewrite.xml.tree.Xml;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 import java.util.function.Predicate;
 
 import static java.util.Collections.emptyList;
@@ -234,10 +235,13 @@ public class MavenVisitor<P> extends XmlVisitor<P> {
 
     @Nullable
     public ResolvedManagedDependency findManagedDependency(Xml.Tag tag) {
-        for (ResolvedManagedDependency d : getResolutionResult().getPom().getDependencyManagement()) {
-            if (tag.getChildValue("groupId").orElse(getResolutionResult().getPom().getGroupId()).equals(d.getGroupId()) &&
-                    tag.getChildValue("artifactId").orElse(getResolutionResult().getPom().getArtifactId()).equals(d.getArtifactId())) {
-                return d;
+        String groupId = getResolutionResult().getPom().getValue(tag.getChildValue("groupId").orElse(getResolutionResult().getPom().getGroupId()));
+        String artifactId = getResolutionResult().getPom().getValue(tag.getChildValue("artifactId").orElse(""));
+        if (groupId != null && artifactId != null) {
+            for (ResolvedManagedDependency d : getResolutionResult().getPom().getDependencyManagement()) {
+                if (groupId.equals(d.getGroupId()) && artifactId.equals(d.getArtifactId())) {
+                    return d;
+                }
             }
         }
         return null;

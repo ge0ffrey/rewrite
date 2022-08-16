@@ -28,7 +28,7 @@ import org.openrewrite.java.internal.JavaTypeCache;
 import org.openrewrite.java.tree.J;
 import org.openrewrite.java.tree.JavaType;
 import org.openrewrite.java.tree.Statement;
-import org.openrewrite.marker.Marker;
+import org.openrewrite.marker.SourceSet;
 
 import java.nio.file.Path;
 import java.util.*;
@@ -38,7 +38,7 @@ import static org.openrewrite.Tree.randomId;
 @Value
 @EqualsAndHashCode(onlyExplicitlyIncluded = true)
 @With
-public class JavaSourceSet implements Marker {
+public class JavaSourceSet implements SourceSet {
     @EqualsAndHashCode.Include
     UUID id;
 
@@ -207,7 +207,7 @@ public class JavaSourceSet implements Marker {
             // Classgraph orders this collection innermost -> outermost, but type names are declared outermost -> innermost
             for (int i = outerClasses.size() - 1; i >= 0; i--) {
                 ClassInfo outerClass = outerClasses.get(i);
-                if (outerClass.isPrivate() || outerClass.isAnonymousInnerClass() || outerClass.isSynthetic()) {
+                if (outerClass.isPrivate() || outerClass.isAnonymousInnerClass() || outerClass.isSynthetic() || outerClass.isExternalClass()) {
                     return null;
                 }
                 if(i == outerClasses.size() - 1) {

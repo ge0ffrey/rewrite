@@ -13,6 +13,8 @@ dependencies {
 
     implementation("de.danielbechler:java-object-diff:latest.release")
 
+    implementation("io.quarkus.gizmo:gizmo:1.0.+")
+
     api("com.fasterxml.jackson.core:jackson-databind:latest.release")
     api("com.fasterxml.jackson.dataformat:jackson-dataformat-smile:latest.release")
     api("com.fasterxml.jackson.module:jackson-module-parameter-names:latest.release")
@@ -24,7 +26,7 @@ dependencies {
 
     implementation("org.apache.commons:commons-compress:latest.release")
 
-    implementation("io.micrometer:micrometer-core:1.+")
+    implementation("io.micrometer:micrometer-core:1.9.+")
     implementation("io.github.classgraph:classgraph:latest.release")
     implementation("org.yaml:snakeyaml:latest.release")
 

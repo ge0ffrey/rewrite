@@ -21,9 +21,13 @@ dependencies {
     api("org.jetbrains:annotations:latest.release")
     api("com.fasterxml.jackson.core:jackson-annotations:latest.release")
 
+    compileOnly(project(":rewrite-test"))
+    compileOnly(platform(kotlin("bom")))
+    compileOnly(kotlin("stdlib"))
+
     implementation("org.antlr:antlr4:4.9.+")
     implementation("org.yaml:snakeyaml:latest.release")
-    implementation("io.micrometer:micrometer-core:1.+")
+    implementation("io.micrometer:micrometer-core:1.9.+")
 
     testImplementation(project(":rewrite-test"))
 }
